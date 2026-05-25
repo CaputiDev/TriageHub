@@ -251,8 +251,7 @@ export function useWebSocket() {
     channel: 'WhatsApp' | 'Webchat', 
     category: string,
     subject: string,
-    description: string,
-    declaredUrgency: number
+    description: string
   ): Promise<Ticket> => {
     return new Promise((resolve, reject) => {
       if (globalWs && globalWs.readyState === WebSocket.OPEN) {
@@ -266,8 +265,7 @@ export function useWebSocket() {
             channel, 
             category, 
             subject, 
-            description, 
-            declaredUrgency 
+            description 
           }
         });
         globalWs.send(payload);

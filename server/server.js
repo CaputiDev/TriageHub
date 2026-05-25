@@ -15,13 +15,14 @@ async function initDatabase() {
     driver: sqlite3.Database
   });
 
-  // Verifica se o esquema está desatualizado (se a tabela tickets existe mas não tem customerId)
+  // Verifica se o esquema está desatualizado (se a tabela tickets existe mas não tem customerId ou ainda possui declaredUrgency)
   try {
     const tableInfo = await db.all("PRAGMA table_info(tickets)");
     if (tableInfo.length > 0) {
       const hasCustomerId = tableInfo.some(column => column.name === 'customerId');
-      if (!hasCustomerId) {
-        console.log('⚠️ Esquema de banco de dados desatualizado detectado. Recriando tabelas relacionais...');
+      const hasDeclaredUrgency = tableInfo.some(column => column.name === 'declaredUrgency');
+      if (!hasCustomerId || hasDeclaredUrgency) {
+        console.log('⚠️ Esquema de banco de dados desatualizado detectado (ajustando colunas). Recriando tabelas relacionais...');
         await db.exec(`
           DROP TABLE IF EXISTS messages;
           DROP TABLE IF EXISTS tickets;
@@ -67,7 +68,6 @@ async function initDatabase() {
       category TEXT NOT NULL,
       subject TEXT NOT NULL,
       description TEXT NOT NULL,
-      declaredUrgency INTEGER NOT NULL,
       priority TEXT NOT NULL,
       status TEXT NOT NULL,
       stressLevel INTEGER NOT NULL,
@@ -214,17 +214,24 @@ async function getTicketById(ticketId) {
 
 /**
  * Transmite a atualização do ticket de forma segura:
- * - Agentes recebem todas as atualizações.
- * - Clientes recebem apenas as atualizações dos seus próprios tickets.
+ * - O operador designado ao ticket recebe a atualização.
+ * - O cliente dono do ticket recebe a atualização.
+ * - Outros agentes não recebem tickets que não são seus.
  */
 function sendTicketUpdate(ticket, triageLog = null) {
   wss.clients.forEach((client) => {
     if (client.readyState === 1 && client.user) {
-      if (client.user.role === 'agent' || client.user.id === ticket.customerId) {
+      // Se o ticket não tem operador, todos os agentes online recebem (para fila aberta)
+      const isAnyAgent = client.user.role === 'agent' && !ticket.operatorId;
+      // Se tem operador, apenas o designado recebe
+      const isAssignedAgent = client.user.role === 'agent' && client.user.id === ticket.operatorId;
+      const isOwnerClient = client.user.id === ticket.customerId;
+
+      if (isAnyAgent || isAssignedAgent || isOwnerClient) {
         client.send(JSON.stringify({
           type: 'TICKET_UPDATE',
           data: ticket,
-          ...(triageLog && client.user.role === 'agent' ? { triageLog } : {})
+          ...(triageLog && (isAssignedAgent || isAnyAgent) ? { triageLog } : {})
         }));
       }
     }
@@ -450,6 +457,7 @@ wss.on('connection', async (ws) => {
                 ws.send(JSON.stringify({
                   type: 'AUTH_SUCCESS',
                   data: {
+                    id: existingUser.id,
                     email: existingUser.email,
                     name: existingUser.name,
                     role: existingUser.role,
@@ -457,7 +465,23 @@ wss.on('connection', async (ws) => {
                   }
                 }));
 
-                 // Envia os tickets após login com sucesso
+                 // Se for um atendente, reatribui tickets orfãos antes de enviar o estado inicial
+                 if (ws.user.role === 'agent') {
+                   const orphanTickets = await db.all(
+                     "SELECT * FROM tickets WHERE status = 'open' AND operatorId IS NULL"
+                   );
+                   if (orphanTickets.length > 0) {
+                     console.log(`🛠️ Atendimentos órfãos encaminhados para ${ws.user.name} como pendentes de aceitação...`);
+                     for (const orphan of orphanTickets) {
+                       await db.run(
+                         "UPDATE tickets SET operatorId = ?, status = 'pending_acceptance' WHERE id = ?",
+                         [ws.user.id, orphan.id]
+                       );
+                     }
+                   }
+                 }
+
+                 // Envia os tickets após login com sucesso (já incluindo tickets reatribuídos)
                  const currentTickets = await getFullTickets(ws.user);
                  ws.send(JSON.stringify({
                    type: 'INITIAL_STATE',
@@ -528,9 +552,9 @@ wss.on('connection', async (ws) => {
 
         // CLIENTE: Cria um novo pedido de suporte (Questionário Expandido)
         case 'CREATE_TICKET': {
-          const { customerEmail, channel, category, subject, description, declaredUrgency } = message.data;
+          const { customerEmail, channel, category, subject, description } = message.data;
 
-          if (!customerEmail || !channel || !category || !subject || !description || !declaredUrgency) {
+          if (!customerEmail || !channel || !category || !subject || !description) {
             console.warn('⚠️ Payload incompleto para CREATE_TICKET');
             return;
           }
@@ -563,9 +587,9 @@ wss.on('connection', async (ws) => {
           // 3. Insere Ticket no SQLite usando IDs (com status 'pending_acceptance' se houver operador)
           const initialStatus = hasAgent ? 'pending_acceptance' : 'open';
           await db.run(
-            `INSERT INTO tickets (id, customerId, channel, category, subject, description, declaredUrgency, priority, status, stressLevel, operatorId, createdAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [ticketId, customerId, channel, category, subject, description, declaredUrgency, priority, initialStatus, stressLevel, operatorId, createdAt]
+            `INSERT INTO tickets (id, customerId, channel, category, subject, description, priority, status, stressLevel, operatorId, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [ticketId, customerId, channel, category, subject, description, priority, initialStatus, stressLevel, operatorId, createdAt]
           );
 
           // 4. Cria Mensagem Inicial do Cliente (usando o resumo do assunto)
@@ -645,6 +669,7 @@ wss.on('connection', async (ws) => {
 
           let newStatus = ticket.status;
           let newStressLevel = ticket.stressLevel;
+          let newOperatorId = ticket.operatorId;
 
           // Se for resposta do atendente, muda o status para em progresso se estiver aberto
           if (sender === 'agent') {
@@ -656,18 +681,69 @@ wss.on('connection', async (ws) => {
               newStressLevel = Math.max(1, newStressLevel - 1);
             }
           } else if (sender === 'client') {
-            // Se for resposta do cliente, analisa se usou termos de estresse adicionais para aumentar o estresse!
+            // Aumenta estresse se o cliente usar palavras-chave críticas
             const textLower = text.toLowerCase();
             const keywordsEncontradas = STRESS_KEYWORDS.filter(keyword => textLower.includes(keyword));
             if (keywordsEncontradas.length > 0) {
-              newStressLevel = Math.min(5, newStressLevel + 1); // Aumenta estresse em +1 (máximo 5)
+              newStressLevel = Math.min(5, newStressLevel + 1);
+            }
+
+            // ──────────────────────────────────────────────────────────────
+            // VERIFICAÇÃO DE ATENDENTE ATIVO
+            // Quando o cliente envia mensagem, verifica se o atendente
+            // designado ainda está online. Se não estiver, reatribui.
+            // ──────────────────────────────────────────────────────────────
+            if (ticket.status === 'in_progress' && ticket.operatorId) {
+              const activeOperators = getActiveOperators();
+              const operatorIsOnline = activeOperators.some(o => o.id === ticket.operatorId);
+
+              if (!operatorIsOnline) {
+                console.warn(`⚠️ [SEND_MESSAGE] Atendente do ticket ${ticketId} está offline. Reatribuindo...`);
+
+                // Outros atendentes online (excluindo o desconectado)
+                const alternatives = activeOperators.filter(o => o.id !== ticket.operatorId);
+
+                if (alternatives.length > 0) {
+                  // Escolhe um atendente aleatório disponível
+                  const newOperator = alternatives[Math.floor(Math.random() * alternatives.length)];
+                  newOperatorId = newOperator.id;
+                  newStatus = 'pending_acceptance';
+
+                  // Insere mensagem de sistema notificando a transição
+                  const sysMsgId = randomUUID();
+                  const sysMsgTimestamp = new Date(Date.now() + 500).toISOString();
+                  const sysMsgText = `Seu atendente anterior ficou offline. Sua mensagem foi recebida e o atendimento foi encaminhado para o especialista ${newOperator.name}. Por favor, aguarde a confirmação do novo atendente.`;
+
+                  await db.run(
+                    `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+                    [sysMsgId, ticketId, 'system_bot', sysMsgText, sysMsgTimestamp]
+                  );
+
+                  console.log(`♻️ [SEND_MESSAGE] Ticket ${ticketId} reatribuído para ${newOperator.name}.`);
+                } else {
+                  // Nenhum atendente online — volta para a fila aberta
+                  newOperatorId = null;
+                  newStatus = 'open';
+
+                  const sysMsgId = randomUUID();
+                  const sysMsgTimestamp = new Date(Date.now() + 500).toISOString();
+                  const sysMsgText = `Seu atendente ficou offline e no momento não há outros especialistas disponíveis. Sua mensagem foi registrada e o primeiro técnico que entrar online assumirá o seu atendimento.`;
+
+                  await db.run(
+                    `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+                    [sysMsgId, ticketId, 'system_bot', sysMsgText, sysMsgTimestamp]
+                  );
+
+                  console.log(`⚠️ [SEND_MESSAGE] Ticket ${ticketId} sem atendente online. Devolvido para a fila aberta.`);
+                }
+              }
             }
           }
 
-          // 3. Atualiza o status e nível de estresse do Ticket no SQLite
+          // 3. Atualiza o status, nível de estresse e operador do Ticket no SQLite
           await db.run(
-            `UPDATE tickets SET status = ?, stressLevel = ? WHERE id = ?`,
-            [newStatus, newStressLevel, ticketId]
+            `UPDATE tickets SET status = ?, stressLevel = ?, operatorId = ? WHERE id = ?`,
+            [newStatus, newStressLevel, newOperatorId, ticketId]
           );
 
           // 4. Recarrega o ticket atualizado

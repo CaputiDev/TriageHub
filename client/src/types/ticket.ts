@@ -18,7 +18,6 @@ export interface Ticket {
   category: string;
   subject: string;
   description: string;
-  declaredUrgency: number;
   priority: TicketPriority;
   status: TicketStatus;
   stressLevel: 1 | 2 | 3 | 4 | 5;

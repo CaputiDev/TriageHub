@@ -88,7 +88,6 @@ CREATE TABLE IF NOT EXISTS tickets (
   category TEXT NOT NULL,
   subject TEXT NOT NULL,
   description TEXT NOT NULL,
-  declaredUrgency INTEGER NOT NULL,
   priority TEXT NOT NULL,
   status TEXT NOT NULL,
   stressLevel INTEGER NOT NULL,
