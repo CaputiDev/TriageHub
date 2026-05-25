@@ -1,32 +1,28 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useTicketStore } from '../store/useTicketStore';
 import type { Ticket, TriageLog } from '../types/ticket';
 
-// URL do servidor WebSocket
 const WS_URL = 'ws://localhost:8080';
 
-// Instância singleton do WebSocket fora do hook para persistir entre renderizações
-// e evitar conexões duplicadas causadas pelo StrictMode do React
+// Conexão e temporizadores globais fora do ciclo de renderização do React
 let globalWs: WebSocket | null = null;
 let reconnectTimeoutId: number | null = null;
 
+// Lista de ouvintes de retorno de chamadas para permitir chamadas baseadas em promessas
+const pendingResolves = new Map<string, (value: any) => void>();
+
 export function useWebSocket() {
   const { 
-    addOrUpdateTicket, 
-    setTickets, 
-    addTriageLog, 
-    setConnected,
-    isConnected 
+    isConnected,
+    currentUser 
   } = useTicketStore();
 
-  // Referência para controlar se o hook está montado (evita chamadas em componentes desmontados)
-  const isMounted = useRef(true);
-
   /**
-   * Conecta ao servidor WebSocket de forma resiliente
+   * Conecta ao servidor WebSocket de forma resiliente e persistente.
+   * Utiliza useTicketStore.getState() diretamente dentro dos manipuladores
+   * de eventos para evitar closures desatualizadas devido a montagem/desmontagem de componentes.
    */
   const connect = useCallback(() => {
-    // Se já estiver conectado ou conectando, ignora
     if (globalWs && (globalWs.readyState === WebSocket.CONNECTING || globalWs.readyState === WebSocket.OPEN)) {
       return;
     }
@@ -38,12 +34,8 @@ export function useWebSocket() {
       globalWs = ws;
 
       ws.onopen = () => {
-        if (!isMounted.current) {
-          ws.close();
-          return;
-        }
         console.log('✅ Conexão WebSocket estabelecida com sucesso!');
-        setConnected(true);
+        useTicketStore.getState().setConnected(true);
         if (reconnectTimeoutId) {
           clearTimeout(reconnectTimeoutId);
           reconnectTimeoutId = null;
@@ -51,99 +43,147 @@ export function useWebSocket() {
       };
 
       ws.onmessage = (event) => {
-        if (!isMounted.current) return;
-        
         try {
           const message = JSON.parse(event.data);
+          const store = useTicketStore.getState();
           
           switch (message.type) {
             case 'INITIAL_STATE':
-              console.log('📥 Estado inicial recebido do servidor:', message.data.length, 'tickets');
-              setTickets(message.data as Ticket[]);
+              console.log('📥 Sincronização inicial de tickets do SQLite:', message.data.length, 'tickets');
+              store.setTickets(message.data as Ticket[]);
               break;
 
-            case 'TICKET_UPDATE':
-              console.log('📥 Atualização de ticket recebida:', message.data.id);
-              addOrUpdateTicket(message.data as Ticket);
-              
-              // Se houver um log de triagem anexado, adiciona à store
-              if (message.triageLog) {
-                addTriageLog(message.triageLog as TriageLog);
+            case 'TICKET_CREATED': {
+              console.log('📥 Ticket criado recebido via WS:', message.data.id);
+              const ticket = message.data as Ticket;
+              store.addOrUpdateTicket(ticket);
+              store.setActiveTicketId(ticket.id);
+
+              // Resolve a promessa pendente para quem acionou a criação
+              const resolve = pendingResolves.get('CREATE_TICKET');
+              if (resolve) {
+                resolve(ticket);
+                pendingResolves.delete('CREATE_TICKET');
               }
               break;
+            }
+
+            case 'TICKET_UPDATE': {
+              console.log('📥 Atualização de ticket recebida do SQLite:', message.data.id);
+              const ticket = message.data as Ticket;
+              store.addOrUpdateTicket(ticket);
+              
+              if (message.triageLog) {
+                store.addTriageLog(message.triageLog as TriageLog);
+              }
+              break;
+            }
 
             default:
-              console.warn('⚠️ Tipo de mensagem desconhecido recebido do servidor:', message.type);
+              console.warn('⚠️ Evento WebSocket desconhecido recebido do servidor:', message.type);
           }
         } catch (err) {
-          console.error('❌ Erro ao processar mensagem do WebSocket:', err);
+          console.error('❌ Erro ao decodificar mensagem WebSocket:', err);
         }
       };
 
       ws.onclose = (event) => {
-        setConnected(false);
+        useTicketStore.getState().setConnected(false);
         globalWs = null;
         
-        if (isMounted.current) {
-          console.log(`🔌 Conexão WebSocket fechada (código: ${event.code}). Tentando reconectar em 3s...`);
-          // Tenta reconectar após 3 segundos
-          if (!reconnectTimeoutId) {
-            reconnectTimeoutId = window.setTimeout(() => {
-              reconnectTimeoutId = null;
-              connect();
-            }, 3000);
-          }
+        console.log(`🔌 Conexão WebSocket fechada (código: ${event.code}). Reconectando em 3s...`);
+        if (!reconnectTimeoutId) {
+          reconnectTimeoutId = window.setTimeout(() => {
+            reconnectTimeoutId = null;
+            connect();
+          }, 3000);
         }
       };
 
       ws.onerror = (error) => {
-        console.error('❌ Erro no WebSocket:', error);
+        console.error('❌ Erro de conexão no WebSocket:', error);
         ws.close();
       };
 
     } catch (err) {
-      console.error('❌ Falha ao instanciar o WebSocket:', err);
-      setConnected(false);
-    }
-  }, [addOrUpdateTicket, setTickets, addTriageLog, setConnected]);
-
-  /**
-   * Envia uma resposta do agente para o servidor
-   */
-  const sendResponse = useCallback((ticketId: string, text: string) => {
-    if (globalWs && globalWs.readyState === WebSocket.OPEN) {
-      const payload = JSON.stringify({
-        type: 'AGENT_REPLY',
-        data: { ticketId, text }
-      });
-      globalWs.send(payload);
-      console.log(`📤 Resposta enviada para o ticket ${ticketId}:`, text);
-      return true;
-    } else {
-      console.warn('⚠️ Não foi possível enviar a resposta. Conexão WebSocket fechada.');
-      return false;
+      console.error('❌ Erro ao criar instância WebSocket:', err);
+      useTicketStore.getState().setConnected(false);
     }
   }, []);
 
-  // Controla o ciclo de vida da conexão WebSocket
-  useEffect(() => {
-    isMounted.current = true;
-    
-    // Inicia a conexão
-    connect();
+  /**
+   * Envia requisição de criação de novo ticket de suporte (retorna Promessa para redirecionamento)
+   */
+  const createTicket = useCallback((customerName: string, channel: 'WhatsApp' | 'Webchat', subject: string): Promise<Ticket> => {
+    return new Promise((resolve, reject) => {
+      if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+        pendingResolves.set('CREATE_TICKET', resolve);
+        
+        const payload = JSON.stringify({
+          type: 'CREATE_TICKET',
+          data: { customerName, channel, subject }
+        });
+        globalWs.send(payload);
+        console.log(`📤 Enviando pedido de suporte de ${customerName}`);
+      } else {
+        reject(new Error('WebSocket não está conectado. Tente novamente.'));
+      }
+    });
+  }, []);
 
-    // Cleanup: Executa quando o hook é desmontado globalmente
-    return () => {
-      isMounted.current = false;
-      // Nota: Não fechamos a conexão global imediatamente se houver re-renderizações rápidas do StrictMode,
-      // mas se o app inteiro desmontar, podemos limpar. Em ambientes reais de SPA, a conexão WebSocket
-      // geralmente dura a sessão inteira do operador.
-    };
+  /**
+   * Envia uma nova mensagem no chat (atendente ou cliente)
+   */
+  const sendMessage = useCallback((ticketId: string, sender: 'client' | 'agent', text: string) => {
+    if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+      const payload = JSON.stringify({
+        type: 'SEND_MESSAGE',
+        data: { ticketId, sender, text }
+      });
+      globalWs.send(payload);
+      console.log(`📤 Nova mensagem enviada pelo ${sender} no ticket ${ticketId}`);
+      return true;
+    }
+    return false;
+  }, []);
+
+  /**
+   * Finaliza/resolve o ticket de suporte
+   */
+  const resolveTicket = useCallback((ticketId: string) => {
+    if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+      const payload = JSON.stringify({
+        type: 'RESOLVE_TICKET',
+        data: { ticketId }
+      });
+      globalWs.send(payload);
+      console.log(`📤 Fechamento de ticket enviado: ${ticketId}`);
+      return true;
+    }
+    return false;
+  }, []);
+
+  useEffect(() => {
+    connect();
   }, [connect]);
+
+  // Identifica reativamente o usuário ao se conectar ou mudar de login
+  // Isso roda sempre que useWebSocket é invocado e os estados mudam, garantindo sincronia total
+  useEffect(() => {
+    if (isConnected && currentUser && globalWs && globalWs.readyState === WebSocket.OPEN) {
+      globalWs.send(JSON.stringify({
+        type: 'IDENTIFY',
+        data: { name: currentUser.name, role: currentUser.role }
+      }));
+      console.log(`📤 Identificado reativamente como: ${currentUser.name} (${currentUser.role})`);
+    }
+  }, [isConnected, currentUser]);
 
   return {
     isConnected,
-    sendResponse,
+    createTicket,
+    sendMessage,
+    resolveTicket,
     reconnect: connect
   };
 }

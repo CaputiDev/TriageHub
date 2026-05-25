@@ -17,6 +17,7 @@ export interface Ticket {
   priority: TicketPriority;
   status: TicketStatus;
   stressLevel: 1 | 2 | 3 | 4 | 5;
+  operatorName: string;
   messages: Message[];
   createdAt: string; // ISO String
 }

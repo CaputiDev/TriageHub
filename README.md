@@ -1,187 +1,187 @@
-# 🚀 TriageHub - Central de Triagem Automatizada de Suporte ao Cliente
+# 🚀 TriageHub - Central de Triagem com SQLite, Roteamento e Chat Multi-Usuário
 
-Bem-vindo ao **TriageHub**, um sistema completo e de alto desempenho projetado para a triagem automatizada, classificação e atendimento a clientes em tempo real. Este projeto foi desenvolvido como **Trabalho Final de Framework de Frontend**, utilizando tecnologias modernas e eficientes no lado do cliente e um proxy de rede via WebSocket resiliente no backend.
+Bem-vindo ao **TriageHub**, um sistema de suporte ao cliente de alto desempenho em tempo real. Esta versão traz uma evolução arquitetural robusta: o sistema funciona como uma **ponte de comunicação multi-usuário bidirecional**, persistindo todos os tickets e mensagens em um banco de dados relacional **SQLite**, navegando entre **5 páginas/rotas dinâmicas** no frontend, e realizando a **designação dinâmica de técnicos conectados** em tempo real com suporte a **nodemon** no backend.
 
 ---
 
 ## 📌 Índice
-1. [Sobre o Projeto](#1-sobre-o-projeto)
-2. [Arquitetura do Sistema](#2-arquitetura-do-sistema)
-3. [Estrutura de Diretórios](#3-estrutura-de-diretórios)
-4. [Requisitos Prévios](#4-requisitos-prévios)
-5. [Instalação e Execução](#5-instalação-e-execução)
-    - [5.1 Executando o Servidor (Backend)](#51-executando-o-servidor-backend)
+1. [Sobre a Nova Arquitetura](#1-sobre-a-nova-arquitetura)
+2. [As 5 Páginas do Frontend (Rotas)](#2-as-5-páginas-do-frontend-rotas)
+3. [Persistência Relacional com SQLite](#3-persistência-relacional-com-sqlite)
+4. [Lógica de Triagem e Designação Dinâmica de Técnicos](#4-lógica-de-triagem-e-designação-dinâmica-de-técnicos)
+    - [4.1 Técnicos Ativos e Identificação](#41-técnicos-ativos-e-identificação)
+    - [4.2 Atribuição Inteligente e Fila de Espera Offline](#42-atribuição-inteligente-e-fila-de-espera-offline)
+    - [4.3 Captura Automática de Tickets (Auto-Pickup)](#43-captura-automática-de-tickets-auto-pickup)
+5. [Instalação e Execução (com Nodemon)](#5-instalação-e-execução-com-nodemon)
+    - [5.1 Executando o Servidor (Backend com Nodemon)](#51-executando-o-servidor-backend-com-nodemon)
     - [5.2 Executando o Cliente (Frontend)](#52-executando-o-cliente-frontend)
-6. [Regras de Negócio e Triagem Automatizada](#6-regras-de-negócio-e-triagem-automatizada)
-7. [Detalhamento Tecnológico (Frontend & Backend)](#7-detalhamento-tecnológico-frontend--backend)
-8. [Manual de Testes do Operador](#8-manual-de-testes-do-operador)
-9. [Licença](#9-licença)
+6. [Detalhamento Técnico de Código](#6-detalhamento-técnico-de-código)
+7. [Manual Prático de Testes Multi-Usuário](#7-manual-prático-de-testes-multi-usuário)
+8. [Licença](#8-licença)
 
 ---
 
-## 1. Sobre o Projeto
-O **TriageHub** soluciona o gargalo operacional de centrais de atendimento ao cliente integrando um **motor de triagem em tempo real**. À medida que novos tickets chegam via canais como WhatsApp ou Webchat, o backend analisa o conteúdo das mensagens e classifica automaticamente o nível de estresse do cliente e a prioridade de atendimento.
-
-No frontend, a fila de atendimento é atualizada instantaneamente via WebSockets e organizada de forma dinâmica, garantindo que os clientes mais críticos e estressados sejam exibidos no topo para atendimento prioritário por parte dos operadores.
-
----
-
-## 2. Arquitetura do Sistema
-O sistema é constituído por duas partes principais integradas de forma bi-direcional:
+## 1. Sobre a Nova Arquitetura
+Diferente de uma fila de visualização estática, esta arquitetura funciona como uma verdadeira ponte bi-direcional. Um cliente faz login e abre uma solicitação de suporte. O sistema executa a triagem automática de estresse, designa um técnico ativo disponível da equipe de atendimento e cria uma conversa em tempo real. O atendente, ao acessar o painel administrativo, visualiza o ticket na sua fila e atende o cliente de forma síncrona.
 
 ```mermaid
 graph TD
-    subgraph Frontend [React Client - Porta 5173]
-        UI[App Dashboard Premium] <--> Hook[Custom Hook: useWebSocket]
-        Hook <--> Store[Zustand Store: useTicketStore]
+    subgraph Cliente [Tela do Cliente]
+        LoginClient[1. Login Cliente] --> Form[2. Formulário de Suporte]
+        Form --> ChatClient[3. Chat Cliente em Tempo Real]
     end
 
-    subgraph Backend [Node.js Proxy Server - Porta 8080]
-        WS[WebSocket Server 'ws'] <--> Cache[(Cache em Memória: Map)]
-        Sim[Simulador de Tickets] --> Triage[Motor de Triagem de Estresse]
-        Triage --> Cache
-        Cache --> WS
+    subgraph Atendente [Painel do Atendente]
+        LoginAgent[1. Login Atendente] --> Dash[4. Dashboard de Fila]
+        Dash --> ChatAgent[5. Chat Atendente em Tempo Real]
     end
 
-    Hook <-->|Comunicação em Tempo Real| WS
-```
+    subgraph Backend [Servidor Proxy WS & DB]
+        WS[WebSocket Server] <--> DB[(SQLite: support.db)]
+    end
 
-- **Backend (Servidor)**: Proxy WebSocket escrito em Node.js puro usando a biblioteca `ws`. Mantém o estado da fila de tickets ativos em cache (memória local) e simula o fluxo bi-direcional de entrada e resposta de tickets.
-- **Frontend (Cliente)**: Aplicação construída com React 19+, TypeScript estrito (zero `any`), empacotada com Vite, gerenciamento de estado global reativo com Zustand e estilizada com o moderno ecossistema Tailwind CSS v4.
-
----
-
-## 3. Estrutura de Diretórios
-A base de código está dividida em duas pastas isoladas no diretório raiz:
-
-```
-c:/git_clones/fdfe/
-├── client/                     # Aplicação Frontend React
-│   ├── src/
-│   │   ├── types/
-│   │   │   └── ticket.ts       # Modelagem de dados e tipos estritos do TS
-│   │   ├── store/
-│   │   │   └── useTicketStore.ts # Gerenciador de estado global (Zustand)
-│   │   ├── hooks/
-│   │   │   └── useWebSocket.ts # Hook de controle e reconexão WebSocket
-│   │   ├── App.tsx             # Painel Visual de Controle e Atendimento
-│   │   ├── index.css           # Estilos globais e injeção do Tailwind CSS v4
-│   │   └── main.tsx            # Inicializador da aplicação React
-│   ├── vite.config.ts          # Arquivo de configuração de build e plugins
-│   └── package.json            # Dependências e scripts do Frontend
-│
-├── server/                     # Proxy Backend Node.js
-│   ├── server.js               # Servidor WebSocket principal e motor de triagem
-│   └── package.json            # Dependências e scripts do Servidor
-│
-├── README.md                   # Este guia completo do usuário
-└── LICENSE                     # Licença do projeto
+    ChatClient <-->|WebSockets| WS
+    ChatAgent <-->|WebSockets| WS
 ```
 
 ---
 
-## 4. Requisitos Prévios
-Antes de iniciar os projetos, certifique-se de ter instalado em sua máquina:
-- **Node.js**: Versão 18.0.0 ou superior (Recomendado LTS)
-- **npm**: Versão 9.0.0 ou superior (geralmente instalado junto ao Node.js)
+## 2. As 5 Páginas do Frontend (Rotas)
+Utilizando o `react-router-dom` com `HashRouter` (100% resiliente a builds estáticos), implementamos as seguintes 5 páginas completas:
+
+1. **Página de Login (`#/`)**: Portal central unificado. O usuário digita seu nome e seleciona se é **Cliente** ou **Atendente**, garantindo controle de sessões e rotas.
+2. **Formulário de Solicitação (`#/client/create`)**: Exclusivo para clientes. Conta com um **motor visual reativo de detecção de urgência**: ao digitar palavras como *"PROCON"*, *"urgente"* ou *"cancelar"*, um aviso pulsante informa dinamicamente que o suporte será classificado como prioritário.
+3. **Chat em Tempo Real do Cliente (`#/client/chat/:ticketId`)**: Tela limpa e focada no cliente, mostrando os dados do suporte e o chat bi-direcional. Exibe imediatamente a mensagem de boas-vindas do atendente.
+4. **Dashboard do Atendente (`#/operator/dashboard`)**: Visão operacional com KPIs em tempo real (total acumulado no banco de dados SQLite, tickets em espera, nível de estresse médio da fila), filtros por canal de entrada e um feed de logs em tempo real do motor de triagem.
+5. **Chat de Atendimento do Atendente (`#/operator/chat/:ticketId`)**: Tela focada de conversação do atendente, com visualização do estresse do cliente em tempo real, painel de histórico de mensagens e ação rápida de finalizar/resolver o ticket no banco de dados SQLite.
 
 ---
 
-## 5. Instalação e Execução
+## 3. Persistência Relacional com SQLite
+Para garantir que nenhuma conversa ou ticket seja perdido ao reiniciar os servidores, implementamos o banco de dados **SQLite** (`support.db`) no backend com a seguinte estrutura de tabelas:
 
-Para rodar a aplicação localmente de maneira correta, é essencial executar tanto o servidor (backend) quanto o cliente (frontend) em terminais paralelos.
+```sql
+-- Tabela de Tickets
+CREATE TABLE IF NOT EXISTS tickets (
+  id TEXT PRIMARY KEY,
+  customerName TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  priority TEXT NOT NULL,
+  status TEXT NOT NULL,
+  stressLevel INTEGER NOT NULL,
+  operatorName TEXT NOT NULL,
+  createdAt TEXT NOT NULL
+);
 
-### 5.1 Executando o Servidor (Backend)
-1. Abra um terminal e acesse a pasta `server`:
+-- Tabela de Mensagens de Chat
+CREATE TABLE IF NOT EXISTS messages (
+  id TEXT PRIMARY KEY,
+  ticketId TEXT NOT NULL,
+  sender TEXT NOT NULL, -- 'client' ou 'agent'
+  text TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  FOREIGN KEY(ticketId) REFERENCES tickets(id) ON DELETE CASCADE
+);
+```
+
+Ao iniciar, o backend cria automaticamente o arquivo `support.db` no diretório do servidor.
+
+---
+
+## 4. Lógica de Triagem e Designação Dinâmica de Técnicos
+
+### 4.1 Técnicos Ativos e Identificação
+O backend não faz mais uso de uma lista de nomes estática. Em vez disso, o frontend utiliza o evento reativo `IDENTIFY` do WebSocket:
+- Assim que o atendente faz login, o cliente React envia a identificação `{ type: "IDENTIFY", data: { name, role: 'agent' } }`.
+- O servidor rastreia as conexões ativas identificadas como atendentes e as armazena dinamicamente na lista de especialistas online.
+
+### 4.2 Atribuição Inteligente e Fila de Espera Offline
+Quando um novo cliente cria um pedido de suporte:
+- **Técnicos Online**: Se houver um ou mais técnicos conectados, o sistema escolhe **automaticamente um deles de forma aleatória** para assumir o suporte. O atendente selecionado envia a mensagem automática de apresentação personalizada:
+  > *"Olá! Eu sou o técnico [Nome do Técnico] e acabo de ser designado para o seu suporte. Como posso te auxiliar com o seu pedido de atendimento?"*
+- **Técnicos Offline**: Caso **não haja nenhum atendente online** no momento em que o ticket é criado:
+  - O ticket é salvo na base SQLite com o status de atendente definido como `"Aguardando Atendente"`.
+  - O cliente recebe uma mensagem de sistema automática instruindo-o a aguardar:
+    > *"Olá! Agradecemos o seu contato. No momento, todos os nossos especialistas estão offline. Por favor, aguarde um momento que o primeiro técnico disponível que se conectar assumirá o seu atendimento!"*
+
+### 4.3 Captura Automática de Tickets (Auto-Pickup)
+Quando um atendente se conecta e faz login no sistema:
+- O backend identifica que o atendente está online e busca na base SQLite por qualquer ticket ativo que esteja no status `"Aguardando Atendente"`.
+- O novo atendente **assume automaticamente esses tickets em espera**.
+- O sistema atualiza o nome do operador do ticket na base de dados e gera uma mensagem automática na tela do cliente notificando o início do suporte:
+  > *"Olá! Eu sou o técnico [Nome do Novo Técnico] e acabo de assumir o seu suporte. Como posso te auxiliar com o seu pedido de atendimento?"*
+
+---
+
+## 5. Instalação e Execução (com Nodemon)
+
+### 5.1 Executando o Servidor (Backend com Nodemon)
+1. Acesse o diretório `server`:
    ```bash
    cd server
    ```
-2. Instale as dependências requeridas (apenas `ws` e ferramentas de desenvolvimento):
+2. Instale as dependências (SQLite e biblioteca WS):
    ```bash
    npm install
    ```
-3. Inicie o servidor:
+3. Inicie o servidor em ambiente de desenvolvimento utilizando o **Nodemon** (que recarrega o servidor a cada alteração de arquivo):
    ```bash
-   npm start
+   npm run dev
    ```
-   Você receberá a confirmação de que o servidor está pronto para conexões:
-   ```text
-   🚀 Servidor Proxy WebSocket rodando na porta 8080
-   ```
+   *O console informará que o Nodemon está monitorando as modificações e que o SQLite iniciou com sucesso.*
 
 ---
 
 ### 5.2 Executando o Cliente (Frontend)
-1. Abra um **segundo terminal** e acesse a pasta `client`:
+1. Abra um segundo terminal e acesse a pasta `client`:
    ```bash
    cd client
    ```
-2. Instale todas as dependências do frontend (incluindo Zustand, Lucide Icons e Tailwind):
+2. Instale as dependências do frontend:
    ```bash
    npm install
    ```
-3. Inicie o servidor de desenvolvimento do Vite:
+3. Inicie o servidor do Vite:
    ```bash
    npm run dev
    ```
-4. O terminal exibirá o endereço local da aplicação. Abra-o no seu navegador (normalmente `http://localhost:5173`).
+4. Abra o endereço no navegador (geralmente `http://localhost:5173`).
 
 ---
 
-## 6. Regras de Negócio e Triagem Automatizada
+## 6. Detalhamento Técnico de Código
 
-### Motor de Triagem IA (Backend)
-O simulador do servidor gera um novo ticket a cada **10 segundos** de forma contínua a partir dos canais WhatsApp ou Webchat. Cada ticket passa por uma triagem automatizada imediata sob as seguintes regras:
-- **Palavras-chave de Estresse**: O motor busca pelas palavras `"PROCON"`, `"cancelar"`, `"urgente"`, `"ruim"` e `"advogado"` (busca case-insensitive).
-- **Classificação Crítica**: Caso o ticket contenha alguma dessas palavras no texto ou assunto:
-  - A prioridade é definida de forma emergencial como `'critical'` ou `'high'`.
-  - O nível de estresse do cliente é cravado na escala máxima (`5`).
-  - O console do servidor emite um alerta luminoso de urgência.
-- **Classificação Padrão**: Caso não haja palavras-chave de estresse:
-  - A prioridade é definida entre `'low'` e `'medium'`.
-  - O nível de estresse é calculado de forma aleatória em uma escala de suavidade de `1` a `3`.
+### Frontend:
+- **`client/src/App.tsx`**: Gerencia o roteamento das 5 páginas do frontend unificadas com `HashRouter` e estilizadas com Tailwind CSS v4.
+- **`client/src/hooks/useWebSocket.ts`**: Atualizado com o `useEffect` de auto-identificação bi-direcional. Envia o `IDENTIFY` ao conectar se o atendente/cliente estiver logado na store.
+- **`client/src/store/useTicketStore.ts`**: Estado Zustand contendo dados do usuário conectado para separação lógica e controle de acessibilidade a rotas.
 
-### Classificação e Ordenação Reativa (Frontend)
-Na interface do operador de suporte, a Zustand store atua como o cérebro organizacional da fila de atendimento. Sempre que um ticket é recebido, atualizado ou respondido, a lista é reordenada estritamente pela seguinte prioridade:
-1. **Prioridade Crítica**: Todos os tickets triados como `'critical'` são posicionados imediatamente no topo da fila, independente de outros fatores.
-2. **Nível de Estresse (Decrescente)**: Em seguida, os tickets são organizados do maior nível de estresse (`5`) ao menor (`1`).
-3. **Hierarquia de Prioridades**: Em seguida, o ordenamento segue a relevância da prioridade (`high` > `medium` > `low`).
-4. **Data de Criação**: Havendo empate em todos os critérios, os tickets mais recentes criados no servidor são exibidos no topo (ordem cronológica reversa).
+### Backend:
+- **`server/server.js`**: Banco de dados relacional com promessas SQLite e lógica síncrona de WebSockets para escuta e alteração de tabelas de mensagens e designação automática e pickups retroativos de atendentes.
 
 ---
 
-## 7. Detalhamento Tecnológico (Frontend & Backend)
+## 7. Manual Prático de Testes Multi-Usuário
 
-### Frontend (React + Zustand + TypeScript)
-- **Zustand Store (`useTicketStore.ts`)**: Estado leve e reativo. Armazena o estado dinâmico dos tickets, a seleção de chat ativa do operador, controle de conexão com o socket, além de armazenar um histórico visual de logs de triagem com rolagem infinita.
-- **Custom Hook Resiliente (`useWebSocket.ts`)**: Controla a conexão com a API de WebSocket nativa do navegador. Emprega a declaração de singleton do socket fora do escopo do hook React. Isso resolve definitivamente o problema recorrente do **React StrictMode** que cria conexões duplicadas em ambiente local de desenvolvimento. Além disso, implementa um algoritmo de auto-reconexão com tempo de espera de 3 segundos em caso de queda do servidor.
-- **Estilização Moderna (Tailwind CSS v4)**: A interface faz uso de efeitos visuais premium de glassmorphism escuro, sombras suaves, scrollbars customizadas e animações pulsantes para captar a atenção do operador em tickets que exigem urgência.
+Para validar a integridade da persistência e a lógica dinâmica de atendentes offline e pickup automático, siga estes passos:
 
-### Backend (Node.js)
-- **Proxy WebSocket Nativo (`server.js`)**: Escrito em JavaScript moderno (ES Modules). Ouve os eventos do tipo `AGENT_REPLY` vindos do React, anexa a resposta do agente com timestamp no ticket correto, reduz o estresse do cliente em -1 (simulando a satisfação do cliente ao ser atendido) e retransmite a fila atualizada instantaneamente a todos os operadores conectados.
-
----
-
-## 8. Manual de Testes do Operador
-
-Para validar os requisitos do projeto e comprovar a estabilidade de rede em tempo real, execute a seguinte sequência de ações no navegador:
-
-1. **Validação de Conexão**:
-   - Abra a página no navegador. No topo direito, certifique-se de que o badge verde pulsante exibe `"Servidor Conectado"`.
-   - Se você fechar o terminal do servidor, o frontend mudará instantaneamente para `"Desconectado"` e entrará em contagem de reconexão. Ao reabrir o servidor, a conexão reestabelecerá de forma transparente.
-
-2. **Fluxo de Triagem Automatizada**:
-   - Aguarde o simulador backend gerar novos tickets na lista lateral a cada 10 segundos.
-   - Observe a entrada de tickets marcados com badge vermelho pulsante `"Crítico"`, nível de estresse `"5/5"` e barra vermelha. Note que eles passam na frente de todos os outros e se fixam no topo da fila.
-   - Abra a aba de logs no painel direito `"Triagem em Ação"` e confirme a identificação de palavras-chave como *"PROCON"*, *"cancelar"* ou *"advogado"*.
-
-3. **Atendimento e Resposta em Tempo Real**:
-   - Clique em qualquer ticket na fila lateral para abrir o chat de atendimento.
-   - Digite uma resposta na barra inferior e envie.
-   - Veja o chat atualizar e a mensagem do operador aparecer imediatamente com o balão na cor azul e badge de status do ticket mudar para `"Em Progresso"`.
-   - Clique no botão `"Resolver"` no canto superior direito para finalizar o ticket de suporte. A interface enviará uma mensagem de finalização automatizada e o ticket será arquivado como `"Resolvido"`, reduzindo o estresse para nível 1.
+1. **Inicie o servidor de banco de dados** via Nodemon (`npm run dev` na pasta `server`).
+2. **Cenário 1: Cliente Abre Suporte Sem Atendentes Online**
+   - Acesse o cliente no navegador, logue-se como **Cliente (Pedro)**.
+   - Envie um formulário de suporte com o assunto *"Preciso de suporte técnico"*.
+   - Você será levado ao chat e verá a **mensagem automática de espera** informando que nenhum técnico está online no momento. O atendente constará como `"Aguardando Atendente"`.
+3. **Cenário 2: Técnico Conecta e Assume Automaticamente (Auto-Pickup)**
+   - Em outro navegador ou aba anônima na mesma URL, faça login como **Atendente (Técnico Alexandre)**.
+   - Assim que você logar, o backend identificará Alexandre e atualizará o ticket de Pedro de forma reativa.
+   - Na tela do Pedro (cliente), o nome do atendente mudará instantaneamente de *"Aguardando Atendente"* para *"Técnico Alexandre"* e aparecerá a mensagem automática: *"Olá! Eu sou o técnico Técnico Alexandre e acabo de assumir o seu suporte..."*.
+   - Na tela de Alexandre (atendente), o ticket de Pedro aparecerá automaticamente no Dashboard como *"Meu Atendimento"*.
+4. **Cenário 3: Fila com Múltiplos Técnicos**
+   - Logue outro técnico, por exemplo **Técnica Marina**, em um terceiro navegador.
+   - Abra um novo ticket com outro cliente, por exemplo **Cliente (Maria)**.
+   - O backend selecionará de forma aleatória e automática entre Alexandre e Marina para assumir a nova conversa, disparando o chat em tempo real e mantendo todos os históricos salvos em seu arquivo de banco de dados local `support.db`!
 
 ---
 
-## 9. Licença
-Este projeto é de código aberto e está licenciado sob a [Licença MIT](LICENSE). Sinta-se livre para utilizar, modificar e distribuir conforme as diretrizes acadêmicas.
+## 8. Licença
+Este software é fornecido livremente sob a [Licença MIT](LICENSE).

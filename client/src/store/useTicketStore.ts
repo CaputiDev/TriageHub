@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Ticket, TriageLog } from '../types/ticket';
 
-// Ordem de prioridade para classificação secundária
+// Peso das prioridades para a ordenação secundária
 const priorityWeight = {
   critical: 0,
   high: 1,
@@ -10,41 +10,53 @@ const priorityWeight = {
 };
 
 /**
- * Função utilitária para ordenar os tickets estritamente conforme as regras de negócio:
+ * Função utilitária para ordenar os tickets:
  * 1. Prioridade 'critical' sempre no topo.
- * 2. Ordenado por 'stressLevel' de forma decrescente (nível 5 primeiro).
- * 3. Ordenado pela hierarquia de prioridades secundárias (high > medium > low).
- * 4. Ordenado pelo tempo de criação mais recente (novos tickets primeiro).
+ * 2. Ordenado por 'stressLevel' decrescente (nível 5 primeiro).
+ * 3. Ordenado pela prioridade nominal (high > medium > low).
+ * 4. Ordenado pelo tempo de criação mais recente.
  */
 const sortTickets = (tickets: Ticket[]): Ticket[] => {
   return [...tickets].sort((a, b) => {
-    // 1. Prioridade Crítica Primeiro
+    // 1. Críticos primeiro
     if (a.priority === 'critical' && b.priority !== 'critical') return -1;
     if (b.priority === 'critical' && a.priority !== 'critical') return 1;
 
-    // 2. Maior Nível de Estresse Primeiro (5 -> 1)
+    // 2. Maior nível de estresse primeiro
     if (b.stressLevel !== a.stressLevel) {
       return b.stressLevel - a.stressLevel;
     }
 
-    // 3. Hierarquia de Prioridades (High > Medium > Low)
+    // 3. Hierarquia de prioridades
     if (a.priority !== b.priority) {
       return priorityWeight[a.priority] - priorityWeight[b.priority];
     }
 
-    // 4. Mais Recente Primeiro
+    // 4. Mais recente primeiro
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 };
 
+interface UserState {
+  name: string;
+  role: 'client' | 'agent';
+}
+
 interface TicketState {
-  // Estado
+  // Estado de Autenticação
+  currentUser: UserState | null;
+  
+  // Estado dos Tickets
   tickets: Ticket[];
   activeTicketId: string | null;
   triageLogs: TriageLog[];
   isConnected: boolean;
 
-  // Ações
+  // Ações de Autenticação
+  login: (name: string, role: 'client' | 'agent') => void;
+  logout: () => void;
+
+  // Ações de Tickets
   setTickets: (tickets: Ticket[]) => void;
   addOrUpdateTicket: (ticket: Ticket) => void;
   setActiveTicketId: (id: string | null) => void;
@@ -55,28 +67,37 @@ interface TicketState {
 
 export const useTicketStore = create<TicketState>((set) => ({
   // Estado Inicial
+  currentUser: null,
   tickets: [],
   activeTicketId: null,
   triageLogs: [],
   isConnected: false,
 
-  // Define a lista completa de tickets (sincronização inicial)
+  // Ações de Autenticação
+  login: (name, role) => set({ 
+    currentUser: { name, role } 
+  }),
+
+  logout: () => set({ 
+    currentUser: null,
+    activeTicketId: null
+  }),
+
+  // Define a lista completa de tickets sincronizados do SQLite
   setTickets: (tickets) => set({ 
     tickets: sortTickets(tickets) 
   }),
 
-  // Adiciona ou atualiza um ticket individual e ordena a lista
+  // Adiciona ou atualiza um ticket individual e o reordena na fila
   addOrUpdateTicket: (updatedTicket) => set((state) => {
     const exists = state.tickets.some(t => t.id === updatedTicket.id);
     let newTicketsList: Ticket[];
 
     if (exists) {
-      // Se já existe, atualiza as informações mesclando ou substituindo
       newTicketsList = state.tickets.map(t => 
         t.id === updatedTicket.id ? updatedTicket : t
       );
     } else {
-      // Se não existe, adiciona à lista
       newTicketsList = [...state.tickets, updatedTicket];
     }
 
@@ -85,17 +106,18 @@ export const useTicketStore = create<TicketState>((set) => ({
     };
   }),
 
-  // Define o ticket que está sendo operado no momento
   setActiveTicketId: (id) => set({ activeTicketId: id }),
 
-  // Adiciona um log de triagem automática do backend
   addTriageLog: (log) => set((state) => ({
-    triageLogs: [log, ...state.triageLogs].slice(0, 50) // Mantém no máximo os últimos 50 logs
+    triageLogs: [log, ...state.triageLogs].slice(0, 50)
   })),
 
-  // Altera o estado da conexão WebSocket
   setConnected: (connected) => set({ isConnected: connected }),
 
-  // Limpa o estado (útil se necessário reiniciar)
-  clearAll: () => set({ tickets: [], activeTicketId: null, triageLogs: [] })
+  clearAll: () => set({ 
+    tickets: [], 
+    activeTicketId: null, 
+    triageLogs: [],
+    currentUser: null
+  })
 }));
