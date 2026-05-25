@@ -38,8 +38,12 @@ const sortTickets = (tickets: Ticket[]): Ticket[] => {
 };
 
 interface UserState {
+  id: string;
   name: string;
   role: 'client' | 'agent';
+  email: string;
+  funcao?: string;
+  codigoIdentificacao?: string;
 }
 
 interface TicketState {
@@ -53,7 +57,7 @@ interface TicketState {
   isConnected: boolean;
 
   // Ações de Autenticação
-  login: (name: string, role: 'client' | 'agent') => void;
+  login: (id: string, name: string, role: 'client' | 'agent', email: string, funcao?: string, codigoIdentificacao?: string) => void;
   logout: () => void;
 
   // Ações de Tickets
@@ -74,8 +78,8 @@ export const useTicketStore = create<TicketState>((set) => ({
   isConnected: false,
 
   // Ações de Autenticação
-  login: (name, role) => set({ 
-    currentUser: { name, role } 
+  login: (id, name, role, email, funcao, codigoIdentificacao) => set({ 
+    currentUser: { id, name, role, email, funcao, codigoIdentificacao } 
   }),
 
   logout: () => set({ 
@@ -83,7 +87,7 @@ export const useTicketStore = create<TicketState>((set) => ({
     activeTicketId: null
   }),
 
-  // Define a lista completa de tickets sincronizados do SQLite
+  // Define a lista completa de tickets sincronizados
   setTickets: (tickets) => set({ 
     tickets: sortTickets(tickets) 
   }),

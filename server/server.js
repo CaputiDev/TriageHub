@@ -2,10 +2,11 @@ import { WebSocketServer } from 'ws';
 import { randomUUID } from 'crypto';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
+import argon2 from 'argon2';
 
 const PORT = 8080;
 
-// Configuração do Banco de Dados SQLite
+// Configuração do Banco de Dados Persistente
 let db;
 
 async function initDatabase() {
@@ -14,34 +15,91 @@ async function initDatabase() {
     driver: sqlite3.Database
   });
 
-  // Criação das Tabelas
+  // Verifica se o esquema está desatualizado (se a tabela tickets existe mas não tem customerId)
+  try {
+    const tableInfo = await db.all("PRAGMA table_info(tickets)");
+    if (tableInfo.length > 0) {
+      const hasCustomerId = tableInfo.some(column => column.name === 'customerId');
+      if (!hasCustomerId) {
+        console.log('⚠️ Esquema de banco de dados desatualizado detectado. Recriando tabelas relacionais...');
+        await db.exec(`
+          DROP TABLE IF EXISTS messages;
+          DROP TABLE IF EXISTS tickets;
+          DROP TABLE IF EXISTS agent_access_logs;
+          DROP TABLE IF EXISTS agents;
+          DROP TABLE IF EXISTS users;
+        `);
+      }
+    }
+  } catch (e) {
+    // Tabela ainda não existe, prossegue normalmente
+  }
+
+  // Nota: Para o desenvolvimento acadêmico local e evitar conflitos com colunas anteriores,
+  // recriamos as tabelas com a nova estrutura expandida se necessário.
   await db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      passwordHash TEXT NOT NULL,
+      role TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agents (
+      userId TEXT PRIMARY KEY,
+      funcao TEXT NOT NULL,
+      codigoIdentificacao TEXT UNIQUE NOT NULL,
+      FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_access_logs (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      FOREIGN KEY(userId) REFERENCES agents(userId) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS tickets (
       id TEXT PRIMARY KEY,
-      customerName TEXT NOT NULL,
+      customerId TEXT NOT NULL,
       channel TEXT NOT NULL,
+      category TEXT NOT NULL,
       subject TEXT NOT NULL,
+      description TEXT NOT NULL,
+      declaredUrgency INTEGER NOT NULL,
       priority TEXT NOT NULL,
       status TEXT NOT NULL,
       stressLevel INTEGER NOT NULL,
-      operatorName TEXT NOT NULL,
-      createdAt TEXT NOT NULL
+      operatorId TEXT,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY(customerId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(operatorId) REFERENCES users(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       ticketId TEXT NOT NULL,
-      sender TEXT NOT NULL, -- 'client' | 'agent'
+      senderId TEXT NOT NULL,
       text TEXT NOT NULL,
       timestamp TEXT NOT NULL,
-      FOREIGN KEY(ticketId) REFERENCES tickets(id) ON DELETE CASCADE
+      FOREIGN KEY(ticketId) REFERENCES tickets(id) ON DELETE CASCADE,
+      FOREIGN KEY(senderId) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
 
-  console.log('💾 Banco de dados SQLite inicializado com sucesso! (support.db)');
+  // Garante que o usuário system_bot existe para integridade referencial dos logs e mensagens
+  const systemBotUser = await db.get("SELECT 1 FROM users WHERE id = 'system_bot'");
+  if (!systemBotUser) {
+    await db.run(
+      "INSERT INTO users (id, email, name, passwordHash, role) VALUES ('system_bot', 'bot@triagehub.local', 'Sistema', 'N/A', 'system')"
+    );
+  }
+
+  console.log('💾 Banco de dados persistente inicializado!');
 }
 
-// Inicializa o banco de dados antes de iniciar o WebSocket
+// Inicializa o banco de dados antes do WebSocket
 await initDatabase();
 
 const wss = new WebSocketServer({ port: PORT });
@@ -53,12 +111,15 @@ const STRESS_KEYWORDS = ['procon', 'cancelar', 'urgente', 'ruim', 'advogado'];
 /**
  * Retorna uma lista de nomes de técnicos ATIVOS e conectados no momento
  */
+/**
+ * Retorna uma lista de objetos de atendentes ATIVOS e conectados no momento
+ */
 function getActiveOperators() {
   const operators = [];
   wss.clients.forEach((client) => {
     if (client.readyState === 1 && client.user && client.user.role === 'agent') {
-      if (!operators.includes(client.user.name)) {
-        operators.push(client.user.name);
+      if (!operators.some(o => o.id === client.user.id)) {
+        operators.push(client.user);
       }
     }
   });
@@ -66,33 +127,124 @@ function getActiveOperators() {
 }
 
 /**
- * Retorna todos os tickets com suas mensagens ordenadas por data
+ * Retorna os tickets formatados com nomes decodificados e histórico de mensagens.
+ * Filtra por cliente se o usuário logado for cliente.
  */
-async function getFullTickets() {
-  const tickets = await db.all('SELECT * FROM tickets');
+async function getFullTickets(user = null) {
+  let ticketsQuery = `
+    SELECT t.*, u_c.name AS customerName, u_c.email AS customerEmail, u_o.name AS operatorName
+    FROM tickets t
+    JOIN users u_c ON t.customerId = u_c.id
+    LEFT JOIN users u_o ON t.operatorId = u_o.id
+  `;
+  let queryParams = [];
+
+  if (user && user.role === 'client') {
+    ticketsQuery += ' WHERE t.customerId = ? ';
+    queryParams.push(user.id);
+  } else if (user && user.role === 'agent') {
+    ticketsQuery += ' WHERE t.operatorId = ? ';
+    queryParams.push(user.id);
+  }
+
+  const tickets = await db.all(ticketsQuery, queryParams);
+
   for (const ticket of tickets) {
-    ticket.messages = await db.all(
-      'SELECT * FROM messages WHERE ticketId = ? ORDER BY timestamp ASC',
-      [ticket.id]
-    );
+    if (!ticket.operatorName) {
+      ticket.operatorName = 'Aguardando Atendente';
+    }
+
+    const messages = await db.all(`
+      SELECT m.id, m.ticketId, m.text, m.timestamp, u.role AS senderRole, u.name AS senderName
+      FROM messages m
+      JOIN users u ON m.senderId = u.id
+      WHERE m.ticketId = ?
+      ORDER BY m.timestamp ASC
+    `, [ticket.id]);
+
+    ticket.messages = messages.map(m => ({
+      id: m.id,
+      ticketId: m.ticketId,
+      text: m.text,
+      timestamp: m.timestamp,
+      sender: m.senderRole === 'agent' ? 'agent' : 'client',
+      senderName: m.senderName
+    }));
   }
   return tickets;
 }
 
 /**
- * Transmite uma mensagem para todos os operadores/clientes conectados
+ * Retorna um ticket individual com mensagens e nomes formatados a partir do ID
  */
-function broadcast(message) {
-  const payload = JSON.stringify(message);
+async function getTicketById(ticketId) {
+  const tickets = await db.all(`
+    SELECT t.*, u_c.name AS customerName, u_c.email AS customerEmail, u_o.name AS operatorName
+    FROM tickets t
+    JOIN users u_c ON t.customerId = u_c.id
+    LEFT JOIN users u_o ON t.operatorId = u_o.id
+    WHERE t.id = ?
+  `, [ticketId]);
+
+  if (tickets.length === 0) return null;
+  const ticket = tickets[0];
+  if (!ticket.operatorName) {
+    ticket.operatorName = 'Aguardando Atendente';
+  }
+
+  const messages = await db.all(`
+    SELECT m.id, m.ticketId, m.text, m.timestamp, u.role AS senderRole, u.name AS senderName
+    FROM messages m
+    JOIN users u ON m.senderId = u.id
+    WHERE m.ticketId = ?
+    ORDER BY m.timestamp ASC
+  `, [ticket.id]);
+
+  ticket.messages = messages.map(m => ({
+    id: m.id,
+    ticketId: m.ticketId,
+    text: m.text,
+    timestamp: m.timestamp,
+    sender: m.senderRole === 'agent' ? 'agent' : 'client',
+    senderName: m.senderName
+  }));
+
+  return ticket;
+}
+
+/**
+ * Transmite a atualização do ticket de forma segura:
+ * - Agentes recebem todas as atualizações.
+ * - Clientes recebem apenas as atualizações dos seus próprios tickets.
+ */
+function sendTicketUpdate(ticket, triageLog = null) {
   wss.clients.forEach((client) => {
-    if (client.readyState === 1) { // 1 = OPEN
-      client.send(payload);
+    if (client.readyState === 1 && client.user) {
+      if (client.user.role === 'agent' || client.user.id === ticket.customerId) {
+        client.send(JSON.stringify({
+          type: 'TICKET_UPDATE',
+          data: ticket,
+          ...(triageLog && client.user.role === 'agent' ? { triageLog } : {})
+        }));
+      }
     }
   });
 }
 
 /**
- * Executa a Triagem Automatizada
+ * Gera um código identificador aleatório de 8 dígitos contendo letras maiúsculas e números de 1 a 9
+ */
+function generateAgentCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789';
+  let result = '';
+  for (let i = 0; i < 8; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+/**
+ * Executa a Triagem Automatizada baseada na descrição detalhada
  */
 function realizarTriagem(text) {
   const textLower = text.toLowerCase();
@@ -113,17 +265,6 @@ function realizarTriagem(text) {
 wss.on('connection', async (ws) => {
   console.log('🔌 Nova conexão WebSocket estabelecida.');
 
-  // Envia o estado inicial de tickets salvos no SQLite
-  try {
-    const currentTickets = await getFullTickets();
-    ws.send(JSON.stringify({
-      type: 'INITIAL_STATE',
-      data: currentTickets
-    }));
-  } catch (err) {
-    console.error('❌ Erro ao enviar estado inicial do SQLite:', err);
-  }
-
   // Ouve mensagens recebidas
   ws.on('message', async (messageRaw) => {
     try {
@@ -131,125 +272,325 @@ wss.on('connection', async (ws) => {
       console.log(`📩 Evento recebido: ${message.type}`);
 
       switch (message.type) {
-        
-        // IDENTIFY: Identifica o usuário conectado (Cliente ou Técnico)
+
+        // =======================================================
+        // AUTH: Autenticação Segura (Login e Registro com Argon2)
+        // =======================================================
+        case 'AUTH': {
+          const { email, password, firstName, lastName, role, funcao, isSignUp } = message.data;
+
+          if (!email || !password) {
+            ws.send(JSON.stringify({
+              type: 'AUTH_ERROR',
+              error: 'Dados de autenticação incompletos.'
+            }));
+            return;
+          }
+
+          // Busca usuário no SQLite pelo email
+          const existingUser = await db.get('SELECT * FROM users WHERE email = ?', [email]);
+
+          if (isSignUp) {
+            // ==========================================
+            // CADASTRO/REGISTRO
+            // ==========================================
+            if (existingUser) {
+              ws.send(JSON.stringify({
+                type: 'AUTH_ERROR',
+                error: 'Este e-mail já está cadastrado. Por favor, faça login.'
+              }));
+              return;
+            }
+
+            if (!firstName || !lastName || !role) {
+              ws.send(JSON.stringify({
+                type: 'AUTH_ERROR',
+                error: 'Por favor, preencha todos os campos para realizar o cadastro.'
+              }));
+              return;
+            }
+
+            if (role === 'agent' && !funcao) {
+              ws.send(JSON.stringify({
+                type: 'AUTH_ERROR',
+                error: 'Por favor, selecione a sua função de atendente.'
+              }));
+              return;
+            }
+
+            const name = `${firstName.trim()} ${lastName.trim()}`;
+
+            try {
+              const salt = Buffer.from("uvacomchocolatequente567890");
+              const passwordHash = await argon2.hash(password, { salt });
+
+              const userId = randomUUID();
+
+              // Salva o novo usuário no SQLite
+              await db.run(
+                `INSERT INTO users (id, email, name, passwordHash, role) VALUES (?, ?, ?, ?, ?)`,
+                [userId, email, name, passwordHash, role]
+              );
+
+              let code = '';
+              if (role === 'agent') {
+                // Gera código de identificação exclusivo de 8 dígitos
+                let isUnique = false;
+                while (!isUnique) {
+                  code = generateAgentCode();
+                  const existingAgent = await db.get('SELECT 1 FROM agents WHERE codigoIdentificacao = ?', [code]);
+                  if (!existingAgent) {
+                    isUnique = true;
+                  }
+                }
+
+                await db.run(
+                  `INSERT INTO agents (userId, funcao, codigoIdentificacao) VALUES (?, ?, ?)`,
+                  [userId, funcao, code]
+                );
+
+                console.log(`🔒 Novo atendente cadastrado: ${name} (${funcao}) | Código: ${code}`);
+              } else {
+                console.log(`🔒 Novo usuário cadastrado: ${name} (${role})`);
+              }
+
+              // Associa o usuário à conexão WebSocket
+              ws.user = { id: userId, name, role, email };
+
+              ws.send(JSON.stringify({
+                type: 'AUTH_SUCCESS',
+                data: {
+                  id: userId,
+                  email,
+                  name,
+                  role,
+                  ...(role === 'agent' ? { funcao, codigoIdentificacao: code } : {})
+                }
+              }));
+
+              // Envia o estado inicial de tickets
+              const currentTickets = await getFullTickets(ws.user);
+              ws.send(JSON.stringify({
+                type: 'INITIAL_STATE',
+                data: currentTickets
+              }));
+            } catch (err) {
+              console.error('❌ Erro no cadastro:', err);
+              ws.send(JSON.stringify({
+                type: 'AUTH_ERROR',
+                error: 'Erro no servidor ao realizar cadastro.'
+              }));
+            }
+
+          } else {
+            // ==========================================
+            // LOGIN
+            // ==========================================
+            if (!existingUser) {
+              ws.send(JSON.stringify({
+                type: 'AUTH_ERROR',
+                error: 'Este e-mail não está cadastrado. Por favor, realize o cadastro.'
+              }));
+              return;
+            }
+
+            try {
+              const passwordMatch = await argon2.verify(existingUser.passwordHash, password);
+
+              if (passwordMatch) {
+                console.log(`🔒 Login efetuado com sucesso: ${existingUser.name} (${existingUser.role})`);
+
+                // Associa o usuário à conexão WebSocket
+                ws.user = { id: existingUser.id, name: existingUser.name, role: existingUser.role, email: existingUser.email };
+
+                let extraDetails = {};
+                if (existingUser.role === 'agent') {
+                  const agentDetails = await db.get('SELECT * FROM agents WHERE userId = ?', [existingUser.id]);
+                  let funcao = agentDetails?.funcao || 'suporte_ti_1';
+                  let codigoIdentificacao = agentDetails?.codigoIdentificacao;
+
+                  if (!codigoIdentificacao) {
+                    // Correção automática para atendentes antigos sem registro em agents
+                    let isUnique = false;
+                    while (!isUnique) {
+                      codigoIdentificacao = generateAgentCode();
+                      const existingAgent = await db.get('SELECT 1 FROM agents WHERE codigoIdentificacao = ?', [codigoIdentificacao]);
+                      if (!existingAgent) {
+                        isUnique = true;
+                      }
+                    }
+                    await db.run(
+                      `INSERT INTO agents (userId, funcao, codigoIdentificacao) VALUES (?, ?, ?)`,
+                      [existingUser.id, funcao, codigoIdentificacao]
+                    );
+                  }
+
+                  // 1. Grava log de acesso na tabela dedicada de atendentes
+                  const logId = randomUUID();
+                  const timestamp = new Date().toISOString();
+                  await db.run(
+                    `INSERT INTO agent_access_logs (id, userId, timestamp) VALUES (?, ?, ?)`,
+                    [logId, existingUser.id, timestamp]
+                  );
+
+                  // 2. Limita os logs de acessos a no máximo os 50 mais recentes
+                  const logs = await db.all(
+                    `SELECT id FROM agent_access_logs WHERE userId = ? ORDER BY timestamp DESC`,
+                    [existingUser.id]
+                  );
+                  if (logs.length > 50) {
+                    for (const oldestLog of logs.slice(50)) {
+                      await db.run(`DELETE FROM agent_access_logs WHERE id = ?`, [oldestLog.id]);
+                    }
+                  }
+
+                  extraDetails = { funcao, codigoIdentificacao };
+                }
+
+                ws.send(JSON.stringify({
+                  type: 'AUTH_SUCCESS',
+                  data: {
+                    email: existingUser.email,
+                    name: existingUser.name,
+                    role: existingUser.role,
+                    ...extraDetails
+                  }
+                }));
+
+                 // Envia os tickets após login com sucesso
+                 const currentTickets = await getFullTickets(ws.user);
+                 ws.send(JSON.stringify({
+                   type: 'INITIAL_STATE',
+                   data: currentTickets
+                 }));
+              } else {
+                console.warn(`⚠️ Senha incorreta para o email: ${email}`);
+                ws.send(JSON.stringify({
+                  type: 'AUTH_ERROR',
+                  error: 'Senha incorreta. Por favor, tente novamente.'
+                }));
+              }
+            } catch (err) {
+              console.error('❌ Erro ao verificar hash de senha:', err);
+              ws.send(JSON.stringify({
+                type: 'AUTH_ERROR',
+                error: 'Erro interno ao autenticar senha.'
+              }));
+            }
+          }
+          break;
+        }
+
+        // IDENTIFY: Identificação Reativa de Usuários
         case 'IDENTIFY': {
-          const { name, role } = message.data;
-          if (!name || !role) return;
+          const { name, role, email, id } = message.data;
+          if (!role) return;
 
-          // Associa os dados do usuário ao objeto de conexão WebSocket
-          ws.user = { name, role };
-          console.log(`👤 Usuário identificado: ${name} | Cargo: ${role.toUpperCase()}`);
+          let userId = id;
+          let userName = name;
+          if (email && (!userId || !userName)) {
+            const u = await db.get('SELECT * FROM users WHERE email = ?', [email]);
+            if (u) {
+              userId = u.id;
+              userName = u.name;
+            }
+          }
 
-          // Se for um ATENDENTE se conectando, verifica se há tickets "Aguardando Atendente" para assumir
+          if (!userId) return;
+
+          ws.user = { id: userId, name: userName, role, email };
+          console.log(`👤 Usuário re-identificado na conexão: ${userName} | Cargo: ${role.toUpperCase()}`);
+
+          // Se for um ATENDENTE se conectando, encaminha os tickets "Aguardando Atendente" como pendentes
           if (role === 'agent') {
             const pendingTickets = await db.all(
-              "SELECT * FROM tickets WHERE status != 'resolved' AND operatorName = 'Aguardando Atendente'"
+              "SELECT * FROM tickets WHERE status = 'open' AND operatorId IS NULL"
             );
 
             if (pendingTickets.length > 0) {
-              console.log(`🛠️ Atendente ${name} assumindo ${pendingTickets.length} ticket(s) em espera...`);
-              
+              console.log(`🛠️ Atendimentos órfãos encaminhados para ${userName} como pendentes de aceitação...`);
+
               for (const ticket of pendingTickets) {
-                // 1. Atualiza o atendente do ticket no SQLite
+                // 1. Atualiza o atendente do ticket no SQLite para pendente de aceitação
                 await db.run(
-                  "UPDATE tickets SET operatorName = ?, status = 'open' WHERE id = ?",
-                  [name, ticket.id]
+                  "UPDATE tickets SET operatorId = ?, status = 'pending_acceptance' WHERE id = ?",
+                  [userId, ticket.id]
                 );
 
-                // 2. Cria mensagem de apresentação automática do atendente assumindo o caso
-                const welcomeMsgId = randomUUID();
-                const welcomeText = `Olá! Eu sou o técnico ${name} e acabo de assumir o seu suporte. Como posso te auxiliar com o seu pedido de atendimento?`;
-                const welcomeTimestamp = new Date().toISOString();
-
-                await db.run(
-                  `INSERT INTO messages (id, ticketId, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-                  [welcomeMsgId, ticket.id, 'agent', welcomeText, welcomeTimestamp]
-                );
-
-                // 3. Recarrega o ticket atualizado
-                const updatedTicket = await db.get('SELECT * FROM tickets WHERE id = ?', [ticket.id]);
-                updatedTicket.messages = await db.all(
-                  'SELECT * FROM messages WHERE ticketId = ? ORDER BY timestamp ASC',
-                  [ticket.id]
-                );
-
-                // 4. Transmite a atualização em tempo real
-                broadcast({
-                  type: 'TICKET_UPDATE',
-                  data: updatedTicket
-                });
+                // 2. Recarrega o ticket atualizado e transmite
+                const updatedTicket = await getTicketById(ticket.id);
+                sendTicketUpdate(updatedTicket);
               }
             }
           }
           break;
         }
 
-        // CLIENTE: Cria um novo pedido de suporte
+        // CLIENTE: Cria um novo pedido de suporte (Questionário Expandido)
         case 'CREATE_TICKET': {
-          const { customerName, channel, subject } = message.data;
-          
-          if (!customerName || !channel || !subject) {
+          const { customerEmail, channel, category, subject, description, declaredUrgency } = message.data;
+
+          if (!customerEmail || !channel || !category || !subject || !description || !declaredUrgency) {
             console.warn('⚠️ Payload incompleto para CREATE_TICKET');
             return;
           }
 
+          if (!ws.user) {
+            console.warn('⚠️ Usuário não autenticado no WebSocket');
+            return;
+          }
+
+          const customerId = ws.user.id;
+          const customerName = ws.user.name;
           const ticketId = randomUUID();
           const createdAt = new Date().toISOString();
 
-          // 1. Executa Triagem de Estresse baseada na mensagem inicial (subject)
-          const { priority, stressLevel, detectedKeywords } = realizarTriagem(subject);
+          // 1. Executa Triagem de Estresse
+          const { priority, stressLevel, detectedKeywords } = realizarTriagem(description);
 
-          // 2. Busca atendentes ATIVOS e conectados no momento
+          // 2. Busca atendentes online
           const activeOperators = getActiveOperators();
+          let operatorId = null;
           let operatorName = 'Aguardando Atendente';
           let hasAgent = activeOperators.length > 0;
 
           if (hasAgent) {
-            // Se houver atendentes conectados, escolhe um de forma automática
-            operatorName = activeOperators[Math.floor(Math.random() * activeOperators.length)];
+            const selectedAgent = activeOperators[Math.floor(Math.random() * activeOperators.length)];
+            operatorId = selectedAgent.id;
+            operatorName = selectedAgent.name;
           }
 
-          // 3. Insere Ticket no SQLite
+          // 3. Insere Ticket no SQLite usando IDs (com status 'pending_acceptance' se houver operador)
+          const initialStatus = hasAgent ? 'pending_acceptance' : 'open';
           await db.run(
-            `INSERT INTO tickets (id, customerName, channel, subject, priority, status, stressLevel, operatorName, createdAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [ticketId, customerName, channel, subject, priority, 'open', stressLevel, operatorName, createdAt]
+            `INSERT INTO tickets (id, customerId, channel, category, subject, description, declaredUrgency, priority, status, stressLevel, operatorId, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [ticketId, customerId, channel, category, subject, description, declaredUrgency, priority, initialStatus, stressLevel, operatorId, createdAt]
           );
 
-          // 4. Cria Mensagem Inicial do Cliente
+          // 4. Cria Mensagem Inicial do Cliente (usando o resumo do assunto)
           const clientMsgId = randomUUID();
           await db.run(
-            `INSERT INTO messages (id, ticketId, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-            [clientMsgId, ticketId, 'client', subject, createdAt]
+            `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+            [clientMsgId, ticketId, customerId, subject, createdAt]
           );
 
-          // 5. Cria Mensagem de Boas-vindas
-          const welcomeMsgId = randomUUID();
-          const welcomeTimestamp = new Date(Date.now() + 1000).toISOString();
-          let welcomeText = '';
+          // 5. Cria Mensagem do Sistema apenas se não houver operador online (fila em espera)
+          if (!hasAgent) {
+            const welcomeMsgId = randomUUID();
+            const welcomeTimestamp = new Date(Date.now() + 1000).toISOString();
+            const welcomeText = `Olá! Agradecemos o seu contato. No momento, todos os nossos especialistas estão offline. Por favor, aguarde um momento que o primeiro técnico disponível que se conectar assumirá o seu atendimento!`;
 
-          if (hasAgent) {
-            // Mensagem automática de apresentação com o nome do técnico ativo selecionado
-            welcomeText = `Olá! Eu sou o técnico ${operatorName} e acabo de ser designado para o seu suporte. Como posso te auxiliar com o seu pedido de atendimento?`;
-          } else {
-            // Mensagem de espera caso não existam técnicos ativos no momento
-            welcomeText = `Olá! Agradecemos o seu contato. No momento, todos os nossos especialistas estão offline. Por favor, aguarde um momento que o primeiro técnico disponível que se conectar assumirá o seu atendimento!`;
+            await db.run(
+              `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+              [welcomeMsgId, ticketId, 'system_bot', welcomeText, welcomeTimestamp]
+            );
           }
 
-          await db.run(
-            `INSERT INTO messages (id, ticketId, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-            [welcomeMsgId, ticketId, 'agent', welcomeText, welcomeTimestamp]
-          );
-
           // 6. Carrega o ticket criado com suas mensagens
-          const newTicket = await db.get('SELECT * FROM tickets WHERE id = ?', [ticketId]);
-          newTicket.messages = await db.all(
-            'SELECT * FROM messages WHERE ticketId = ? ORDER BY timestamp ASC',
-            [ticketId]
-          );
+          const newTicket = await getTicketById(ticketId);
 
-          console.log(`📥 [Ticket Criado] De: ${customerName} | Designado: ${operatorName} | Prioridade: ${priority.toUpperCase()}`);
+          console.log(`📥 [Ticket Criado] De: ${customerName} | Prioridade: ${priority.toUpperCase()} | Canal: ${channel} | Status: ${initialStatus}`);
 
           // Envia resposta direta de confirmação de criação para o cliente específico
           ws.send(JSON.stringify({
@@ -257,19 +598,15 @@ wss.on('connection', async (ws) => {
             data: newTicket
           }));
 
-          // Transmite a atualização geral para todos os conectados (operadores terão o novo ticket na fila)
-          broadcast({
-            type: 'TICKET_UPDATE',
-            data: newTicket,
-            triageLog: {
-              id: randomUUID(),
-              timestamp: createdAt,
-              customerName,
-              subject,
-              detectedKeywords,
-              priority,
-              stressLevel
-            }
+          // Transmite a atualização de forma segura para todos os agentes e para o cliente
+          sendTicketUpdate(newTicket, {
+            id: randomUUID(),
+            timestamp: createdAt,
+            customerName,
+            subject,
+            detectedKeywords,
+            priority,
+            stressLevel
           });
           break;
         }
@@ -283,18 +620,24 @@ wss.on('connection', async (ws) => {
             return;
           }
 
+          if (!ws.user) {
+            console.warn('⚠️ Conexão WebSocket não autenticada');
+            return;
+          }
+
           const messageId = randomUUID();
           const timestamp = new Date().toISOString();
+          const senderId = ws.user.id;
 
-          // 1. Salva a nova mensagem no SQLite
+          // 1. Salva a nova mensagem no SQLite com senderId
           await db.run(
-            `INSERT INTO messages (id, ticketId, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-            [messageId, ticketId, sender, text, timestamp]
+            `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+            [messageId, ticketId, senderId, text, timestamp]
           );
 
           // 2. Busca informações do Ticket
           const ticket = await db.get('SELECT * FROM tickets WHERE id = ?', [ticketId]);
-          
+
           if (!ticket) {
             console.error(`❌ Ticket ${ticketId} não encontrado.`);
             return;
@@ -328,19 +671,12 @@ wss.on('connection', async (ws) => {
           );
 
           // 4. Recarrega o ticket atualizado
-          const updatedTicket = await db.get('SELECT * FROM tickets WHERE id = ?', [ticketId]);
-          updatedTicket.messages = await db.all(
-            'SELECT * FROM messages WHERE ticketId = ? ORDER BY timestamp ASC',
-            [ticketId]
-          );
+          const updatedTicket = await getTicketById(ticketId);
 
           console.log(`✍️ [Nova Mensagem] Em: Ticket ${ticketId} | Remetente: ${sender} | Estresse: ${newStressLevel}`);
 
-          // Transmite o ticket atualizado em broadcast (mantém cliente e atendente sincronizados)
-          broadcast({
-            type: 'TICKET_UPDATE',
-            data: updatedTicket
-          });
+          // Transmite o ticket atualizado de forma segura
+          sendTicketUpdate(updatedTicket);
           break;
         }
 
@@ -350,6 +686,11 @@ wss.on('connection', async (ws) => {
 
           if (!ticketId) {
             console.warn('⚠️ ID do ticket ausente para RESOLVE_TICKET');
+            return;
+          }
+
+          if (!ws.user) {
+            console.warn('⚠️ Conexão WebSocket não autenticada');
             return;
           }
 
@@ -365,24 +706,229 @@ wss.on('connection', async (ws) => {
 
           // 2. Insere mensagem automática de finalização no SQLite
           await db.run(
-            `INSERT INTO messages (id, ticketId, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-            [finalMsgId, ticketId, 'agent', finalMsgText, timestamp]
+            `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+            [finalMsgId, ticketId, ws.user.id, finalMsgText, timestamp]
           );
 
           // 3. Recarrega o ticket finalizado
-          const resolvedTicket = await db.get('SELECT * FROM tickets WHERE id = ?', [ticketId]);
-          resolvedTicket.messages = await db.all(
-            'SELECT * FROM messages WHERE ticketId = ? ORDER BY timestamp ASC',
-            [ticketId]
-          );
+          const resolvedTicket = await getTicketById(ticketId);
 
           console.log(`✅ [Ticket Resolvido] ID: ${ticketId}`);
 
-          // Transmite o encerramento do ticket para sincronizar as telas
-          broadcast({
-            type: 'TICKET_UPDATE',
-            data: resolvedTicket
-          });
+          // Transmite o encerramento do ticket de forma segura
+          sendTicketUpdate(resolvedTicket);
+          break;
+        }
+
+        // GET_TICKET: Busca ticket por ID de Protocolo (8 caracteres ou UUID)
+        case 'GET_TICKET': {
+          const { ticketId } = message.data;
+
+          if (!ticketId) {
+            ws.send(JSON.stringify({
+              type: 'TICKET_ERROR',
+              error: 'ID do protocolo ausente.'
+            }));
+            console.warn('⚠️ ID do ticket ausente para GET_TICKET');
+            return;
+          }
+
+          if (!ws.user) {
+            ws.send(JSON.stringify({
+              type: 'TICKET_ERROR',
+              ticketId,
+              error: 'Sessão não autenticada no servidor.'
+            }));
+            console.warn('⚠️ Conexão WebSocket não autenticada');
+            return;
+          }
+
+          try {
+            // Busca o ticket pelo ID de protocolo (primeiros 8 caracteres do UUID) ou UUID completo
+            let fullTicketId = ticketId;
+            if (ticketId.length === 8) {
+              const ticketRow = await db.get(
+                "SELECT id FROM tickets WHERE UPPER(SUBSTR(id, 1, 8)) = UPPER(?)",
+                [ticketId]
+              );
+              if (ticketRow) {
+                fullTicketId = ticketRow.id;
+              } else {
+                ws.send(JSON.stringify({
+                  type: 'TICKET_ERROR',
+                  ticketId,
+                  error: 'Protocolo de ticket não encontrado no banco de dados.'
+                }));
+                console.warn(`⚠️ Protocolo ${ticketId} não encontrado.`);
+                return;
+              }
+            } else if (ticketId.length !== 36) {
+              ws.send(JSON.stringify({
+                type: 'TICKET_ERROR',
+                ticketId,
+                error: 'ID de protocolo inválido. Deve conter exatamente 8 caracteres.'
+              }));
+              return;
+            }
+
+            const ticket = await getTicketById(fullTicketId);
+            if (ticket) {
+              // Envia diretamente para o solicitante
+              ws.send(JSON.stringify({
+                type: 'TICKET_UPDATE',
+                data: ticket
+              }));
+              console.log(`📤 Ticket ${fullTicketId} (Protocolo: ${ticketId}) enviado com sucesso para ${ws.user.name}`);
+            } else {
+              ws.send(JSON.stringify({
+                type: 'TICKET_ERROR',
+                ticketId,
+                error: 'Protocolo de ticket não encontrado no banco de dados.'
+              }));
+              console.warn(`⚠️ Ticket ${fullTicketId} não encontrado.`);
+            }
+          } catch (err) {
+            console.error('❌ Erro ao buscar ticket por protocolo:', err);
+            ws.send(JSON.stringify({
+              type: 'TICKET_ERROR',
+              ticketId,
+              error: 'Erro interno no servidor ao pesquisar o protocolo.'
+            }));
+          }
+          break;
+        }
+
+        // ACCEPT_TICKET: Operador aceita a solicitação pendente
+        case 'ACCEPT_TICKET': {
+          const { ticketId } = message.data;
+
+          if (!ticketId) {
+            ws.send(JSON.stringify({
+              type: 'TICKET_ERROR',
+              error: 'ID do ticket ausente para aceitação.'
+            }));
+            return;
+          }
+
+          if (!ws.user) {
+            ws.send(JSON.stringify({
+              type: 'TICKET_ERROR',
+              ticketId,
+              error: 'Sessão não autenticada no servidor.'
+            }));
+            return;
+          }
+
+          try {
+            const ticket = await db.get("SELECT * FROM tickets WHERE id = ?", [ticketId]);
+            if (!ticket) {
+              ws.send(JSON.stringify({
+                type: 'TICKET_ERROR',
+                ticketId,
+                error: 'Ticket não encontrado.'
+              }));
+              return;
+            }
+
+            // 1. Atualiza o status para em progresso
+            await db.run(
+              "UPDATE tickets SET status = 'in_progress' WHERE id = ?",
+              [ticketId]
+            );
+
+            // 2. Insere a mensagem de boas-vindas do atendente no banco
+            const welcomeMsgId = randomUUID();
+            const welcomeText = `Olá! Eu sou o técnico ${ws.user.name} e acabo de aceitar o seu suporte. Como posso te auxiliar com o seu pedido de atendimento?`;
+            const welcomeTimestamp = new Date().toISOString();
+
+            await db.run(
+              `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+              [welcomeMsgId, ticketId, ws.user.id, welcomeText, welcomeTimestamp]
+            );
+
+            // 3. Recarrega o ticket atualizado e transmite
+            const updatedTicket = await getTicketById(ticketId);
+            sendTicketUpdate(updatedTicket);
+            console.log(`✅ [Ticket Aceito] ID: ${ticketId} pelo atendente ${ws.user.name}`);
+          } catch (err) {
+            console.error('❌ Erro ao aceitar ticket:', err);
+            ws.send(JSON.stringify({
+              type: 'TICKET_ERROR',
+              ticketId,
+              error: 'Erro interno ao aceitar o ticket.'
+            }));
+          }
+          break;
+        }
+
+        // REJECT_TICKET: Operador nega a solicitação pendente
+        case 'REJECT_TICKET': {
+          const { ticketId } = message.data;
+
+          if (!ticketId) {
+            ws.send(JSON.stringify({
+              type: 'TICKET_ERROR',
+              error: 'ID do ticket ausente para recusa.'
+            }));
+            return;
+          }
+
+          if (!ws.user) {
+            ws.send(JSON.stringify({
+              type: 'TICKET_ERROR',
+              ticketId,
+              error: 'Sessão não autenticada no servidor.'
+            }));
+            return;
+          }
+
+          try {
+            const ticket = await db.get("SELECT * FROM tickets WHERE id = ?", [ticketId]);
+            if (!ticket) {
+              ws.send(JSON.stringify({
+                type: 'TICKET_ERROR',
+                ticketId,
+                error: 'Ticket não encontrado.'
+              }));
+              return;
+            }
+
+            const currentAgentId = ws.user.id;
+            const currentAgentName = ws.user.name;
+
+            // Busca outros atendentes conectados e ativos (excluindo o atual)
+            const alternativeOperators = getActiveOperators().filter(o => o.id !== currentAgentId);
+
+            if (alternativeOperators.length > 0) {
+              // Distribui para outro atendente aleatório no estado de proposta
+              const newOperator = alternativeOperators[Math.floor(Math.random() * alternativeOperators.length)];
+              
+              await db.run(
+                "UPDATE tickets SET operatorId = ?, status = 'pending_acceptance' WHERE id = ?",
+                [newOperator.id, ticketId]
+              );
+
+              // Recarrega o ticket atualizado e transmite
+              const updatedTicket = await getTicketById(ticketId);
+              sendTicketUpdate(updatedTicket);
+              console.log(`♻️ [Ticket Recusado/Encaminhado] ID: ${ticketId} do atendente ${currentAgentName} para ${newOperator.name}`);
+            } else {
+              // Não há outros operadores online. Alerta o operador e mantém na fila dele.
+              ws.send(JSON.stringify({
+                type: 'REJECT_FAILED',
+                ticketId,
+                error: 'Você é o único atendente disponível no momento. O atendimento continuará em sua fila de solicitações.'
+              }));
+              console.warn(`⚠️ Recusa de ticket ${ticketId} falhou: único atendente online.`);
+            }
+          } catch (err) {
+            console.error('❌ Erro ao recusar ticket:', err);
+            ws.send(JSON.stringify({
+              type: 'TICKET_ERROR',
+              ticketId,
+              error: 'Erro interno ao recusar o ticket.'
+            }));
+          }
           break;
         }
 
@@ -394,7 +940,80 @@ wss.on('connection', async (ws) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', async () => {
     console.log('🔌 Conexão WebSocket encerrada.');
+
+    // Se quem desconectou era um atendente, executa reatribuição resiliente dos seus tickets ativos
+    if (ws.user && ws.user.role === 'agent') {
+      const disconnectedAgentId = ws.user.id;
+      const disconnectedAgentName = ws.user.name;
+      console.log(`🔌 Técnico desconectado: ${disconnectedAgentName} (ID: ${disconnectedAgentId}). Verificando tickets ativos...`);
+
+      try {
+        const activeTickets = await db.all(
+          "SELECT * FROM tickets WHERE status != 'resolved' AND operatorId = ?",
+          [disconnectedAgentId]
+        );
+
+        if (activeTickets.length > 0) {
+          console.log(`🛠️ Reatribuindo ${activeTickets.length} ticket(s) ativo(s) do técnico desconectado...`);
+
+          // Obtém outros atendentes online, garantindo que não inclua o que acabou de desconectar
+          const alternativeOperators = getActiveOperators().filter(o => o.id !== disconnectedAgentId);
+
+          if (alternativeOperators.length > 0) {
+            // Distribui os tickets aleatoriamente entre os atendentes online no estado pendente de aceitação
+            for (const ticket of activeTickets) {
+              const newOperator = alternativeOperators[Math.floor(Math.random() * alternativeOperators.length)];
+              
+              await db.run(
+                "UPDATE tickets SET operatorId = ?, status = 'pending_acceptance' WHERE id = ?",
+                [newOperator.id, ticket.id]
+              );
+
+              // Insere bolha de mensagem do sistema indicando a transição
+              const msgId = randomUUID();
+              const transitionText = `O técnico ${disconnectedAgentName} desconectou da sessão. O atendimento foi encaminhado para a fila de solicitações do técnico ${newOperator.name}.`;
+              const timestamp = new Date().toISOString();
+
+              await db.run(
+                `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+                [msgId, ticket.id, 'system_bot', transitionText, timestamp]
+              );
+
+              // Carrega ticket atualizado e transmite a atualização
+              const updatedTicket = await getTicketById(ticket.id);
+              sendTicketUpdate(updatedTicket);
+            }
+            console.log(`✅ ${activeTickets.length} ticket(s) reatribuído(s) com sucesso aos atendentes online como pendentes.`);
+          } else {
+            // Se nenhum atendente estiver online, devolve os tickets para a fila aberta sem operador
+            for (const ticket of activeTickets) {
+              await db.run(
+                "UPDATE tickets SET operatorId = NULL, status = 'open' WHERE id = ?",
+                [ticket.id]
+              );
+
+              // Insere mensagem informativa do sistema vinda do system_bot
+              const msgId = randomUUID();
+              const fallbackText = `O técnico ${disconnectedAgentName} desconectou e no momento não há outros operadores online. Este atendimento retornou para a fila de espera geral.`;
+              const timestamp = new Date().toISOString();
+
+              await db.run(
+                `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+                [msgId, ticket.id, 'system_bot', fallbackText, timestamp]
+              );
+
+              // Carrega ticket atualizado e transmite a atualização
+              const updatedTicket = await getTicketById(ticket.id);
+              sendTicketUpdate(updatedTicket);
+            }
+            console.log(`⚠️ Nenhum outro atendente online. ${activeTickets.length} ticket(s) devolvido(s) para a fila.`);
+          }
+        }
+      } catch (err) {
+        console.error('❌ Erro na reatribuição ao desconectar atendente:', err);
+      }
+    }
   });
 });

@@ -10,6 +10,7 @@ let reconnectTimeoutId: number | null = null;
 
 // Lista de ouvintes de retorno de chamadas para permitir chamadas baseadas em promessas
 const pendingResolves = new Map<string, (value: any) => void>();
+const pendingRejects = new Map<string, (reason: any) => void>();
 
 export function useWebSocket() {
   const { 
@@ -48,8 +49,43 @@ export function useWebSocket() {
           const store = useTicketStore.getState();
           
           switch (message.type) {
+            
+            // ==========================================
+            // AUTH_SUCCESS: Autenticação bem-sucedida
+            // ==========================================
+            case 'AUTH_SUCCESS': {
+              console.log('🔑 Autenticação efetuada com sucesso no backend:', message.data.name);
+              const { id, email, name, role, funcao, codigoIdentificacao } = message.data;
+              
+              // Executa o login na store global
+              store.login(id, name, role, email, funcao, codigoIdentificacao);
+
+              const resolve = pendingResolves.get('AUTH');
+              if (resolve) {
+                resolve(message.data);
+                pendingResolves.delete('AUTH');
+                pendingRejects.delete('AUTH');
+              }
+              break;
+            }
+
+            // ==========================================
+            // AUTH_ERROR: Erro de login/registro
+            // ==========================================
+            case 'AUTH_ERROR': {
+              console.warn('❌ Falha na autenticação do socket:', message.error);
+              
+              const reject = pendingRejects.get('AUTH');
+              if (reject) {
+                reject(new Error(message.error));
+                pendingResolves.delete('AUTH');
+                pendingRejects.delete('AUTH');
+              }
+              break;
+            }
+
             case 'INITIAL_STATE':
-              console.log('📥 Sincronização inicial de tickets do SQLite:', message.data.length, 'tickets');
+              console.log('📥 Sincronização inicial de tickets:', message.data.length, 'tickets');
               store.setTickets(message.data as Ticket[]);
               break;
 
@@ -69,12 +105,78 @@ export function useWebSocket() {
             }
 
             case 'TICKET_UPDATE': {
-              console.log('📥 Atualização de ticket recebida do SQLite:', message.data.id);
+              console.log('📥 Sincronização ou atualização de ticket recebida:', message.data.id);
               const ticket = message.data as Ticket;
               store.addOrUpdateTicket(ticket);
               
               if (message.triageLog) {
                 store.addTriageLog(message.triageLog as TriageLog);
+              }
+
+              // Resolve a promessa pendente de busca se houver (por UUID ou pelos primeiros 8 caracteres)
+              const shortId = ticket.id.slice(0, 8).toUpperCase();
+              const resolve = pendingResolves.get(`GET_TICKET_${ticket.id}`) ||
+                              pendingResolves.get(`GET_TICKET_${shortId}`) ||
+                              pendingResolves.get(`GET_TICKET_${shortId.toLowerCase()}`);
+                              
+              if (resolve) {
+                resolve(ticket);
+                pendingResolves.delete(`GET_TICKET_${ticket.id}`);
+                pendingResolves.delete(`GET_TICKET_${shortId}`);
+                pendingResolves.delete(`GET_TICKET_${shortId.toLowerCase()}`);
+                
+                pendingRejects.delete(`GET_TICKET_${ticket.id}`);
+                pendingRejects.delete(`GET_TICKET_${shortId}`);
+                pendingRejects.delete(`GET_TICKET_${shortId.toLowerCase()}`);
+              }
+
+              // Resolve promessa de aceite se houver
+              const acceptResolve = pendingResolves.get(`ACCEPT_${ticket.id}`);
+              if (acceptResolve) {
+                acceptResolve(ticket);
+                pendingResolves.delete(`ACCEPT_${ticket.id}`);
+                pendingRejects.delete(`ACCEPT_${ticket.id}`);
+              }
+
+              // Resolve promessa de rejeição se houver
+              const rejectResolve = pendingResolves.get(`REJECT_${ticket.id}`);
+              if (rejectResolve) {
+                rejectResolve(ticket);
+                pendingResolves.delete(`REJECT_${ticket.id}`);
+                pendingRejects.delete(`REJECT_${ticket.id}`);
+              }
+              break;
+            }
+
+            case 'TICKET_ERROR': {
+              console.warn('❌ Erro de ticket recebido do servidor:', message.error);
+              const ticketId = message.ticketId || '';
+              const shortId = ticketId.length === 36 ? ticketId.slice(0, 8).toUpperCase() : ticketId.toUpperCase();
+              
+              const reject = pendingRejects.get(`GET_TICKET_${ticketId}`) ||
+                             pendingRejects.get(`GET_TICKET_${shortId}`) ||
+                             pendingRejects.get(`GET_TICKET_${shortId.toLowerCase()}`);
+                             
+              if (reject) {
+                reject(new Error(message.error));
+                pendingResolves.delete(`GET_TICKET_${ticketId}`);
+                pendingResolves.delete(`GET_TICKET_${shortId}`);
+                pendingResolves.delete(`GET_TICKET_${shortId.toLowerCase()}`);
+                
+                pendingRejects.delete(`GET_TICKET_${ticketId}`);
+                pendingRejects.delete(`GET_TICKET_${shortId}`);
+                pendingRejects.delete(`GET_TICKET_${shortId.toLowerCase()}`);
+              }
+              break;
+            }
+
+            case 'REJECT_FAILED': {
+              console.warn('❌ Falha ao recusar ticket:', message.error);
+              const reject = pendingRejects.get(`REJECT_${message.ticketId}`);
+              if (reject) {
+                reject(new Error(message.error));
+                pendingResolves.delete(`REJECT_${message.ticketId}`);
+                pendingRejects.delete(`REJECT_${message.ticketId}`);
               }
               break;
             }
@@ -112,19 +214,64 @@ export function useWebSocket() {
   }, []);
 
   /**
-   * Envia requisição de criação de novo ticket de suporte (retorna Promessa para redirecionamento)
+   * Envia requisição segura de autenticação (Login ou Registro Automático)
    */
-  const createTicket = useCallback((customerName: string, channel: 'WhatsApp' | 'Webchat', subject: string): Promise<Ticket> => {
+  const authenticate = useCallback((
+    email: string, 
+    password: string, 
+    firstName?: string, 
+    lastName?: string, 
+    role?: 'client' | 'agent', 
+    funcao?: string,
+    isSignUp?: boolean
+  ): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+        pendingResolves.set('AUTH', resolve);
+        pendingRejects.set('AUTH', reject);
+
+        const payload = JSON.stringify({
+          type: 'AUTH',
+          data: { email, password, firstName, lastName, role, funcao, isSignUp }
+        });
+        globalWs.send(payload);
+        console.log(`📤 Enviando solicitação de autenticação para o e-mail: ${email}`);
+      } else {
+        reject(new Error('Servidor offline. Verifique a conexão com o WebSocket.'));
+      }
+    });
+  }, []);
+
+  /**
+   * Envia requisição de criação de novo ticket de suporte (Questionário Expandido)
+   */
+  const createTicket = useCallback((
+    customerName: string, 
+    customerEmail: string,
+    channel: 'WhatsApp' | 'Webchat', 
+    category: string,
+    subject: string,
+    description: string,
+    declaredUrgency: number
+  ): Promise<Ticket> => {
     return new Promise((resolve, reject) => {
       if (globalWs && globalWs.readyState === WebSocket.OPEN) {
         pendingResolves.set('CREATE_TICKET', resolve);
         
         const payload = JSON.stringify({
           type: 'CREATE_TICKET',
-          data: { customerName, channel, subject }
+          data: { 
+            customerName, 
+            customerEmail, 
+            channel, 
+            category, 
+            subject, 
+            description, 
+            declaredUrgency 
+          }
         });
         globalWs.send(payload);
-        console.log(`📤 Enviando pedido de suporte de ${customerName}`);
+        console.log(`📤 Enviando ticket expandido para ${customerName}`);
       } else {
         reject(new Error('WebSocket não está conectado. Tente novamente.'));
       }
@@ -163,17 +310,79 @@ export function useWebSocket() {
     return false;
   }, []);
 
+  /**
+   * Busca um ticket específico a partir do seu ID de Protocolo (UUID)
+   */
+  const getTicket = useCallback((ticketId: string): Promise<Ticket> => {
+    return new Promise((resolve, reject) => {
+      if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+        pendingResolves.set(`GET_TICKET_${ticketId}`, resolve);
+        pendingRejects.set(`GET_TICKET_${ticketId}`, reject);
+
+        const payload = JSON.stringify({
+          type: 'GET_TICKET',
+          data: { ticketId }
+        });
+        globalWs.send(payload);
+        console.log(`📤 Solicitando ticket específico por protocolo: ${ticketId}`);
+      } else {
+        reject(new Error('Servidor offline. Verifique a conexão com o WebSocket.'));
+      }
+    });
+  }, []);
+
+  /**
+   * Aceita uma solicitação de ticket pendente
+   */
+  const acceptTicket = useCallback((ticketId: string): Promise<Ticket> => {
+    return new Promise((resolve, reject) => {
+      if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+        pendingResolves.set(`ACCEPT_${ticketId}`, resolve);
+        pendingRejects.set(`ACCEPT_${ticketId}`, reject);
+
+        const payload = JSON.stringify({
+          type: 'ACCEPT_TICKET',
+          data: { ticketId }
+        });
+        globalWs.send(payload);
+        console.log(`📤 Enviando aceite do ticket: ${ticketId}`);
+      } else {
+        reject(new Error('WebSocket não está conectado. Tente novamente.'));
+      }
+    });
+  }, []);
+
+  /**
+   * Recusa um ticket recebido, tentando repassá-lo para outro operador online
+   */
+  const rejectTicket = useCallback((ticketId: string): Promise<Ticket> => {
+    return new Promise((resolve, reject) => {
+      if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+        pendingResolves.set(`REJECT_${ticketId}`, resolve);
+        pendingRejects.set(`REJECT_${ticketId}`, reject);
+
+        const payload = JSON.stringify({
+          type: 'REJECT_TICKET',
+          data: { ticketId }
+        });
+        globalWs.send(payload);
+        console.log(`📤 Enviando recusa do ticket: ${ticketId}`);
+      } else {
+        reject(new Error('WebSocket não está conectado. Tente novamente.'));
+      }
+    });
+  }, []);
+
   useEffect(() => {
     connect();
   }, [connect]);
 
-  // Identifica reativamente o usuário ao se conectar ou mudar de login
-  // Isso roda sempre que useWebSocket é invocado e os estados mudam, garantindo sincronia total
+  // Identifica reativamente o usuário ao se conectar ou se re-autenticar
   useEffect(() => {
     if (isConnected && currentUser && globalWs && globalWs.readyState === WebSocket.OPEN) {
       globalWs.send(JSON.stringify({
         type: 'IDENTIFY',
-        data: { name: currentUser.name, role: currentUser.role }
+        data: { id: currentUser.id, name: currentUser.name, role: currentUser.role, email: currentUser.email }
       }));
       console.log(`📤 Identificado reativamente como: ${currentUser.name} (${currentUser.role})`);
     }
@@ -181,9 +390,13 @@ export function useWebSocket() {
 
   return {
     isConnected,
+    authenticate,
     createTicket,
     sendMessage,
     resolveTicket,
+    getTicket,
+    acceptTicket,
+    rejectTicket,
     reconnect: connect
   };
 }

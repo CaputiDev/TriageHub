@@ -1,38 +1,39 @@
 # 🚀 TriageHub - Central de Triagem com SQLite, Roteamento e Chat Multi-Usuário
 
-Bem-vindo ao **TriageHub**, um sistema de suporte ao cliente de alto desempenho em tempo real. Esta versão traz uma evolução arquitetural robusta: o sistema funciona como uma **ponte de comunicação multi-usuário bidirecional**, persistindo todos os tickets e mensagens em um banco de dados relacional **SQLite**, navegando entre **5 páginas/rotas dinâmicas** no frontend, e realizando a **designação dinâmica de técnicos conectados** em tempo real com suporte a **nodemon** no backend.
+Bem-vindo ao **TriageHub**, um sistema de suporte ao cliente de alto desempenho em tempo real. Esta versão traz uma evolução arquitetural robusta: o sistema funciona como uma **ponte de comunicação multi-usuário bidirecional**, persistindo todos os tickets e mensagens em um banco de dados relacional **SQLite**, navegando entre **5 páginas/rotas dinâmicas** no frontend, e realizando a **autenticação segura criptografada com Argon2** combinada a um **questionário de suporte detalhado**.
 
 ---
 
 ## 📌 Índice
-1. [Sobre a Nova Arquitetura](#1-sobre-a-nova-arquitetura)
+1. [Sobre o Projeto](#1-sobre-o-projeto)
 2. [As 5 Páginas do Frontend (Rotas)](#2-as-5-páginas-do-frontend-rotas)
-3. [Persistência Relacional com SQLite](#3-persistência-relacional-com-sqlite)
-4. [Lógica de Triagem e Designação Dinâmica de Técnicos](#4-lógica-de-triagem-e-designação-dinâmica-de-técnicos)
-    - [4.1 Técnicos Ativos e Identificação](#41-técnicos-ativos-e-identificação)
-    - [4.2 Atribuição Inteligente e Fila de Espera Offline](#42-atribuição-inteligente-e-fila-de-espera-offline)
-    - [4.3 Captura Automática de Tickets (Auto-Pickup)](#43-captura-automática-de-tickets-auto-pickup)
-5. [Instalação e Execução (com Nodemon)](#5-instalação-e-execução-com-nodemon)
-    - [5.1 Executando o Servidor (Backend com Nodemon)](#51-executando-o-servidor-backend-com-nodemon)
-    - [5.2 Executando o Cliente (Frontend)](#52-executando-o-cliente-frontend)
-6. [Detalhamento Técnico de Código](#6-detalhamento-técnico-de-código)
-7. [Manual Prático de Testes Multi-Usuário](#7-manual-prático-de-testes-multi-usuário)
+3. [Segurança e Autenticação com Argon2](#3-segurança-e-autenticação-com-argon2)
+4. [Persistência Relacional com SQLite](#4-persistência-relacional-com-sqlite)
+5. [Questionário Estendido e Triagem IA](#5-questionário-estendido-e-triagem-ia)
+    - [5.1 O Questionário Expandido do Cliente](#51-o-questionário-expandido-do-cliente)
+    - [5.2 Designação Dinâmica e Fila Offline](#52-designação-dinâmica-e-fila-offline)
+6. [Instalação e Execução](#6-instalação-e-execução)
+    - [6.1 Executando o Servidor (Backend com Nodemon)](#61-executando-o-servidor-backend-com-nodemon)
+    - [6.2 Executando o Cliente (Frontend)](#62-executando-o-cliente-frontend)
+7. [Manual Prático de Testes Integrados](#7-manual-prático-de-testes-integrados)
 8. [Licença](#8-licença)
 
 ---
 
-## 1. Sobre a Nova Arquitetura
-Diferente de uma fila de visualização estática, esta arquitetura funciona como uma verdadeira ponte bi-direcional. Um cliente faz login e abre uma solicitação de suporte. O sistema executa a triagem automática de estresse, designa um técnico ativo disponível da equipe de atendimento e cria uma conversa em tempo real. O atendente, ao acessar o painel administrativo, visualiza o ticket na sua fila e atende o cliente de forma síncrona.
+## 1. Sobre o Projeto
+O **TriageHub** soluciona o gargalo operacional de centrais de atendimento ao cliente integrando um **motor de triagem em tempo real**. À medida que novos tickets chegam, o backend analisa o conteúdo das mensagens e classifica automaticamente o nível de estresse do cliente e a prioridade de atendimento.
+
+Toda a arquitetura é baseada em comunicação síncrona bi-direcional persistente via WebSockets e SQLite, garantindo que as mensagens de chat e os tickets de suporte permaneçam seguros e reativos em tempo real.
 
 ```mermaid
 graph TD
     subgraph Cliente [Tela do Cliente]
-        LoginClient[1. Login Cliente] --> Form[2. Formulário de Suporte]
+        LoginClient[1. Login / Registro Seguro] --> Form[2. Questionário Detalhado]
         Form --> ChatClient[3. Chat Cliente em Tempo Real]
     end
 
     subgraph Atendente [Painel do Atendente]
-        LoginAgent[1. Login Atendente] --> Dash[4. Dashboard de Fila]
+        LoginAgent[1. Login / Registro Seguro] --> Dash[4. Dashboard de Fila]
         Dash --> ChatAgent[5. Chat Atendente em Tempo Real]
     end
 
@@ -49,24 +50,45 @@ graph TD
 ## 2. As 5 Páginas do Frontend (Rotas)
 Utilizando o `react-router-dom` com `HashRouter` (100% resiliente a builds estáticos), implementamos as seguintes 5 páginas completas:
 
-1. **Página de Login (`#/`)**: Portal central unificado. O usuário digita seu nome e seleciona se é **Cliente** ou **Atendente**, garantindo controle de sessões e rotas.
-2. **Formulário de Solicitação (`#/client/create`)**: Exclusivo para clientes. Conta com um **motor visual reativo de detecção de urgência**: ao digitar palavras como *"PROCON"*, *"urgente"* ou *"cancelar"*, um aviso pulsante informa dinamicamente que o suporte será classificado como prioritário.
-3. **Chat em Tempo Real do Cliente (`#/client/chat/:ticketId`)**: Tela limpa e focada no cliente, mostrando os dados do suporte e o chat bi-direcional. Exibe imediatamente a mensagem de boas-vindas do atendente.
-4. **Dashboard do Atendente (`#/operator/dashboard`)**: Visão operacional com KPIs em tempo real (total acumulado no banco de dados SQLite, tickets em espera, nível de estresse médio da fila), filtros por canal de entrada e um feed de logs em tempo real do motor de triagem.
-5. **Chat de Atendimento do Atendente (`#/operator/chat/:ticketId`)**: Tela focada de conversação do atendente, com visualização do estresse do cliente em tempo real, painel de histórico de mensagens e ação rápida de finalizar/resolver o ticket no banco de dados SQLite.
+1. **Página de Autenticação (`#/`)**: Portal central unificado com toggle dinâmico entre **Login** e **Cadastro**. Solicita E-mail, Senha e, em caso de novos cadastros, o Nome Completo e o Cargo (Cliente ou Atendente).
+2. **Formulário de Solicitação (`#/client/create`)**: Exclusivo para clientes. Exibe o questionário estendido com 5 perguntas detalhadas para contextualização do problema e checagem de palavras urgentes em tempo real.
+3. **Chat em Tempo Real do Cliente (`#/client/chat/:ticketId`)**: Tela de atendimento, exibindo a conversa em tempo real e uma barra lateral contendo todos os dados detalhados fornecidos pelo cliente (Categoria, Título, Urgência e Relato Completo).
+4. **Dashboard do Atendente (`#/operator/dashboard`)**: Painel administrativo exibindo KPIs em tempo real, filtros dinâmicos e o feed de logs de análise IA.
+5. **Chat de Atendimento do Atendente (`#/operator/chat/:ticketId`)**: Tela focada de conversação ativa para o atendente, exibindo a barra lateral com as informações detalhadas e ações de encerramento do ticket.
 
 ---
 
-## 3. Persistência Relacional com SQLite
-Para garantir que nenhuma conversa ou ticket seja perdido ao reiniciar os servidores, implementamos o banco de dados **SQLite** (`support.db`) no backend com a seguinte estrutura de tabelas:
+## 3. Segurança e Autenticação com Argon2
+Assegurando o cumprimento de diretrizes rígidas de segurança corporativa, todas as senhas de usuários são protegidas no banco de dados SQLite:
+- **Hach/Salting robusto**: O backend utiliza a biblioteca `argon2` para aplicar hashing de mão única utilizando parâmetros de ponta na criptografia.
+- **Login e Registro Síncronos**: Ao tentar autenticar no frontend, o WebSocket envia o payload `AUTH`. O backend verifica o email:
+  - Se cadastrado, executa `argon2.verify()` na senha enviada contra o hash armazenado para validar o login.
+  - Se novo, gera o hash seguro da senha via `argon2.hash()` e insere as credenciais na tabela `users` do banco SQLite.
+
+---
+
+## 4. Persistência Relacional com SQLite
+Para garantir que nenhuma conversa, ticket ou usuário seja perdido ao reiniciar os servidores, implementamos o banco de dados **SQLite** (`support.db`) no backend com a seguinte estrutura de tabelas:
 
 ```sql
--- Tabela de Tickets
+-- Tabela de Usuários Criptografada
+CREATE TABLE IF NOT EXISTS users (
+  email TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  passwordHash TEXT NOT NULL,
+  role TEXT NOT NULL
+);
+
+-- Tabela de Tickets (Questionário Expandido)
 CREATE TABLE IF NOT EXISTS tickets (
   id TEXT PRIMARY KEY,
   customerName TEXT NOT NULL,
+  customerEmail TEXT NOT NULL,
   channel TEXT NOT NULL,
+  category TEXT NOT NULL,
   subject TEXT NOT NULL,
+  description TEXT NOT NULL,
+  declaredUrgency INTEGER NOT NULL,
   priority TEXT NOT NULL,
   status TEXT NOT NULL,
   stressLevel INTEGER NOT NULL,
@@ -85,55 +107,47 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 ```
 
-Ao iniciar, o backend cria automaticamente o arquivo `support.db` no diretório do servidor.
+---
+
+## 5. Questionário Estendido e Triagem IA
+
+### 5.1 O Questionário Expandido do Cliente
+Para que o especialista em atendimento obtenha as informações completas sobre o caso assim que assumir o chat, o cliente preenche o seguinte formulário estendido:
+1. **Título do Problema (Resumo)**: Um campo curto sintetizando o problema.
+2. **Categoria do Problema**: Seleção entre `Técnico (Hardware/Software)`, `Financeiro & Cobrança`, `Dúvidas & Configurações` e `Reclamações & Cancelamento`.
+3. **Urgência Autodeclarada (1 a 5)**: A percepção do cliente sobre a gravidade da situação.
+4. **Canal Preferencial**: Escolha entre WhatsApp e Webchat.
+5. **Descrição Detalhada do Caso**: Um texto longo relatando o ocorrido. O motor de triagem do backend escuta este campo em busca das palavras-chave de estresse (`"PROCON"`, `"cancelar"`, `"urgente"`, `"ruim"`, `"advogado"`) para determinar a prioridade automática.
+
+### 5.2 Designação Dinâmica e Fila Offline
+- **Atendente Online**: Se houver técnicos conectados (identificados após o login), o sistema atribui automaticamente um deles de forma aleatória para iniciar o chat e despacha a mensagem automática de boas-vindas do técnico.
+- **Atendente Offline**: Se nenhum técnico estiver logado, o ticket é marcado como `"Aguardando Atendente"`, exibindo a mensagem automática de espera do sistema. Assim que qualquer atendente logar, ele **assumirá automaticamente** o ticket reativamente!
 
 ---
 
-## 4. Lógica de Triagem e Designação Dinâmica de Técnicos
+## 6. Instalação e Execução
 
-### 4.1 Técnicos Ativos e Identificação
-O backend não faz mais uso de uma lista de nomes estática. Em vez disso, o frontend utiliza o evento reativo `IDENTIFY` do WebSocket:
-- Assim que o atendente faz login, o cliente React envia a identificação `{ type: "IDENTIFY", data: { name, role: 'agent' } }`.
-- O servidor rastreia as conexões ativas identificadas como atendentes e as armazena dinamicamente na lista de especialistas online.
-
-### 4.2 Atribuição Inteligente e Fila de Espera Offline
-Quando um novo cliente cria um pedido de suporte:
-- **Técnicos Online**: Se houver um ou mais técnicos conectados, o sistema escolhe **automaticamente um deles de forma aleatória** para assumir o suporte. O atendente selecionado envia a mensagem automática de apresentação personalizada:
-  > *"Olá! Eu sou o técnico [Nome do Técnico] e acabo de ser designado para o seu suporte. Como posso te auxiliar com o seu pedido de atendimento?"*
-- **Técnicos Offline**: Caso **não haja nenhum atendente online** no momento em que o ticket é criado:
-  - O ticket é salvo na base SQLite com o status de atendente definido como `"Aguardando Atendente"`.
-  - O cliente recebe uma mensagem de sistema automática instruindo-o a aguardar:
-    > *"Olá! Agradecemos o seu contato. No momento, todos os nossos especialistas estão offline. Por favor, aguarde um momento que o primeiro técnico disponível que se conectar assumirá o seu atendimento!"*
-
-### 4.3 Captura Automática de Tickets (Auto-Pickup)
-Quando um atendente se conecta e faz login no sistema:
-- O backend identifica que o atendente está online e busca na base SQLite por qualquer ticket ativo que esteja no status `"Aguardando Atendente"`.
-- O novo atendente **assume automaticamente esses tickets em espera**.
-- O sistema atualiza o nome do operador do ticket na base de dados e gera uma mensagem automática na tela do cliente notificando o início do suporte:
-  > *"Olá! Eu sou o técnico [Nome do Novo Técnico] e acabo de assumir o seu suporte. Como posso te auxiliar com o seu pedido de atendimento?"*
-
----
-
-## 5. Instalação e Execução (com Nodemon)
-
-### 5.1 Executando o Servidor (Backend com Nodemon)
+### 6.1 Executando o Servidor (Backend com Nodemon)
 1. Acesse o diretório `server`:
    ```bash
    cd server
    ```
-2. Instale as dependências (SQLite e biblioteca WS):
+2. Instale as dependências (que agora incluem `argon2` e `sqlite3`):
    ```bash
    npm install
    ```
-3. Inicie o servidor em ambiente de desenvolvimento utilizando o **Nodemon** (que recarrega o servidor a cada alteração de arquivo):
+3. Inicie o servidor WebSocket com suporte a hot-reload:
    ```bash
    npm run dev
    ```
-   *O console informará que o Nodemon está monitorando as modificações e que o SQLite iniciou com sucesso.*
+   *O arquivo `support.db` será criado no diretório `server/` e as tabelas serão instanciadas automaticamente.*
+
+> [!TIP]
+> Caso você tenha rodado versões anteriores do projeto, pare o processo do servidor e apague o arquivo `server/support.db` para que a nova tabela de usuários e colunas expandidas sejam criadas de forma limpa!
 
 ---
 
-### 5.2 Executando o Cliente (Frontend)
+### 6.2 Executando o Cliente (Frontend)
 1. Abra um segundo terminal e acesse a pasta `client`:
    ```bash
    cd client
@@ -150,36 +164,22 @@ Quando um atendente se conecta e faz login no sistema:
 
 ---
 
-## 6. Detalhamento Técnico de Código
+## 7. Manual Prático de Testes Integrados
 
-### Frontend:
-- **`client/src/App.tsx`**: Gerencia o roteamento das 5 páginas do frontend unificadas com `HashRouter` e estilizadas com Tailwind CSS v4.
-- **`client/src/hooks/useWebSocket.ts`**: Atualizado com o `useEffect` de auto-identificação bi-direcional. Envia o `IDENTIFY` ao conectar se o atendente/cliente estiver logado na store.
-- **`client/src/store/useTicketStore.ts`**: Estado Zustand contendo dados do usuário conectado para separação lógica e controle de acessibilidade a rotas.
+Para testar a segurança do Argon2 e a exibição rica de dados no chat:
 
-### Backend:
-- **`server/server.js`**: Banco de dados relacional com promessas SQLite e lógica síncrona de WebSockets para escuta e alteração de tabelas de mensagens e designação automática e pickups retroativos de atendentes.
-
----
-
-## 7. Manual Prático de Testes Multi-Usuário
-
-Para validar a integridade da persistência e a lógica dinâmica de atendentes offline e pickup automático, siga estes passos:
-
-1. **Inicie o servidor de banco de dados** via Nodemon (`npm run dev` na pasta `server`).
-2. **Cenário 1: Cliente Abre Suporte Sem Atendentes Online**
-   - Acesse o cliente no navegador, logue-se como **Cliente (Pedro)**.
-   - Envie um formulário de suporte com o assunto *"Preciso de suporte técnico"*.
-   - Você será levado ao chat e verá a **mensagem automática de espera** informando que nenhum técnico está online no momento. O atendente constará como `"Aguardando Atendente"`.
-3. **Cenário 2: Técnico Conecta e Assume Automaticamente (Auto-Pickup)**
-   - Em outro navegador ou aba anônima na mesma URL, faça login como **Atendente (Técnico Alexandre)**.
-   - Assim que você logar, o backend identificará Alexandre e atualizará o ticket de Pedro de forma reativa.
-   - Na tela do Pedro (cliente), o nome do atendente mudará instantaneamente de *"Aguardando Atendente"* para *"Técnico Alexandre"* e aparecerá a mensagem automática: *"Olá! Eu sou o técnico Técnico Alexandre e acabo de assumir o seu suporte..."*.
-   - Na tela de Alexandre (atendente), o ticket de Pedro aparecerá automaticamente no Dashboard como *"Meu Atendimento"*.
-4. **Cenário 3: Fila com Múltiplos Técnicos**
-   - Logue outro técnico, por exemplo **Técnica Marina**, em um terceiro navegador.
-   - Abra um novo ticket com outro cliente, por exemplo **Cliente (Maria)**.
-   - O backend selecionará de forma aleatória e automática entre Alexandre e Marina para assumir a nova conversa, disparando o chat em tempo real e mantendo todos os históricos salvos em seu arquivo de banco de dados local `support.db`!
+1. **Faça um Novo Cadastro**:
+   - Acesse a URL no navegador. Clique em *"Ainda não tem conta? Cadastre-se"*.
+   - Digite um E-mail (`carlos@cliente.com`), Senha (`senha123`), Nome (`Carlos Cliente`) e escolha o papel **Cliente**. Clique em cadastrar. 
+   - O backend salvará no SQLite o hash criptografado com Argon2.
+2. **Responda ao Questionário Detalhado**:
+   - Pedro será redirecionado para a criação de suporte. Preencha a Categoria (*Financeiro*), Título (*Cobrança Duplicada*), escolha Urgência *4/5*, Canal *WhatsApp* e descreva detalhadamente o caso no campo longo.
+   - Envie. Pedro será levado para o chat.
+3. **Abra outro navegador e faça Login do Técnico**:
+   - No segundo navegador, acesse a URL. Crie uma conta ou faça login como Atendente: E-mail (`alexandre@tecnico.com`), Senha (`senha456`), Nome (`Técnico Alexandre`).
+   - Alexandre se conectará e assumirá Pedro automaticamente em tempo real!
+4. **Confirmação Visual Rica**:
+   - Em ambos os navegadores, no chat, observe a barra lateral esquerda preenchida com **toda a descrição do questionário estendido** (Categoria Financeiro, Urgência 4/5, Título do Problema e Relato Completo Pedro). Isso garante total clareza no atendimento operacional!
 
 ---
 

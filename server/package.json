@@ -9,6 +9,7 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
+    "argon2": "^0.44.0",
     "sqlite": "^5.1.1",
     "sqlite3": "^6.0.1",
     "ws": "^8.18.0"
