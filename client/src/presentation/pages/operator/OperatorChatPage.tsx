@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useOperatorChatController } from '../../controllers/useOperatorChatController';
 import { ThemeToggle } from '../../components/common/ThemeToggle';
@@ -5,7 +6,7 @@ import { ChatFeed } from '../../components/chat/ChatFeed';
 import { ChatInput } from '../../components/chat/ChatInput';
 import { ChatSystemLog } from '../../components/chat/ChatSystemLog';
 import { Button } from '../../components/common/Button';
-import { ArrowLeft, Check, Bot } from 'lucide-react';
+import { ArrowLeft, Check, Bot, MoreHorizontal } from 'lucide-react';
 import { TicketDetailSummary } from '../../components/dashboard/TicketDetailSummary';
 
 export function OperatorChatPage() {
@@ -16,6 +17,8 @@ export function OperatorChatPage() {
     handleResolve,
     handleLeave
   } = useOperatorChatController();
+
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   // Route protection
   if (!currentUser || currentUser.role !== 'agent') {
@@ -66,6 +69,13 @@ export function OperatorChatPage() {
 
         <div className="flex items-center gap-3">
           <ChatSystemLog logs={ticket.logs ?? []} />
+          <button
+            onClick={() => setIsDetailsOpen(true)}
+            className="p-1.5 rounded border border-secondary bg-bg-panel text-secondary hover:bg-secondary hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+            title="Ver detalhes"
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
           <ThemeToggle />
           {ticket.status !== 'resolved' && (
             <Button
@@ -104,6 +114,27 @@ export function OperatorChatPage() {
           />
         </main>
       </div>
+
+      {/* Modal de Detalhes do Chamado */}
+      {isDetailsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 dark:bg-black/40 backdrop-blur-sm"
+          onClick={() => setIsDetailsOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-md bg-bg-panel border border-border-subtle rounded p-6 space-y-4 shadow-xl text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <h3 className="text-xs font-bold text-text-main uppercase tracking-wider">Detalhes do Chamado</h3>
+              <Button onClick={() => setIsDetailsOpen(false)} variant="text" size="sm" className="font-bold">
+                Fechar
+              </Button>
+            </div>
+            <TicketDetailSummary ticket={ticket} showPriority showCustomer showStatus />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
