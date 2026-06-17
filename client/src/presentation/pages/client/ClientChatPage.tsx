@@ -3,8 +3,10 @@ import { useClientChatController } from '../../controllers/useClientChatControll
 import { ChatFeed } from '../../components/chat/ChatFeed';
 import { ChatInput } from '../../components/chat/ChatInput';
 import { ThemeToggle } from '../../components/common/ThemeToggle';
+import { Button } from '../../components/common/Button';
 import logoUrl from '../../../assets/logo.png';
 import { ArrowLeft, MoreHorizontal } from 'lucide-react';
+import { TicketDetailSummary } from '../../components/dashboard/TicketDetailSummary';
 
 export function ClientChatPage() {
   const {
@@ -26,21 +28,29 @@ export function ClientChatPage() {
       <div className="min-h-screen bg-bg-base text-text-main flex items-center justify-center p-6 text-center transition-colors duration-200">
         <div className="space-y-3">
           <h2 className="text-base font-bold">Solicitação não encontrada</h2>
-          <button
-            onClick={handleLeave}
-            className="px-3 py-1.5 bg-secondary hover:opacity-90 text-white text-xs font-semibold rounded cursor-pointer border-0"
-          >
+          <Button onClick={handleLeave}>
             Voltar ao Portal
-          </button>
+          </Button>
         </div>
       </div>
     );
   }
+
   return (
     <div className="min-h-screen bg-bg-base text-text-main flex flex-col font-sans transition-colors duration-200">
       {/* Header do Chat */}
       <header className="border-b border-border-subtle bg-bg-panel px-4 md:px-6 py-3 flex items-center justify-between sticky top-0 z-10 transition-colors">
         <div className="flex items-center space-x-3">
+          <Button
+            onClick={handleLeave}
+            variant="text"
+            size="sm"
+            className="flex items-center gap-1"
+            title="Voltar ao Portal"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span className="hidden sm:inline">Voltar ao Portal</span>
+          </Button>
           <div className="w-8 h-8 rounded-full bg-bg-base border border-border-subtle flex items-center justify-center overflow-hidden shrink-0">
             <img src={logoUrl} alt="TriageHub" className="w-6 h-6 object-contain" />
           </div>
@@ -61,12 +71,6 @@ export function ClientChatPage() {
             <MoreHorizontal className="w-4 h-4" />
           </button>
           <ThemeToggle />
-          <button
-            onClick={handleLeave}
-            className="text-xs text-secondary hover:opacity-80 transition-colors flex items-center gap-1 font-medium cursor-pointer bg-transparent border-0"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" /> Voltar ao Portal
-          </button>
         </div>
       </header>
 
@@ -79,44 +83,17 @@ export function ClientChatPage() {
           >
             <div className="flex items-center justify-between border-b border-border-subtle pb-3">
               <h3 className="text-xs font-bold text-text-main uppercase tracking-wider">Detalhes do Chamado</h3>
-              <button
+              <Button
                 onClick={() => setMobileInfoOpen(false)}
-                className="text-xs text-secondary hover:opacity-80 cursor-pointer bg-transparent border-0 font-bold"
+                variant="text"
+                size="sm"
+                className="font-bold"
               >
                 Fechar
-              </button>
+              </Button>
             </div>
 
-            <div className="space-y-3 text-xs text-text-main">
-              <div>
-                <span className="text-text-muted block text-[10px] uppercase">Protocolo</span>
-                <span className="font-mono">#{ticket.id.slice(0, 8).toUpperCase()}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-text-muted block text-[10px] uppercase">Status</span>
-                  <span className="capitalize">{ticket.status.replace('_', ' ')}</span>
-                </div>
-                <div>
-                  <span className="text-text-muted block text-[10px] uppercase">Canal</span>
-                  <span>{ticket.channel}</span>
-                </div>
-              </div>
-              <div>
-                <span className="text-text-muted block text-[10px] uppercase">Categoria</span>
-                <span>{ticket.category || 'Não Informada'}</span>
-              </div>
-              <div>
-                <span className="text-text-muted block text-[10px] uppercase">Assunto</span>
-                <span className="font-bold">{ticket.subject}</span>
-              </div>
-              <div className="border-t border-border-subtle pt-3">
-                <span className="text-text-muted block text-[10px] uppercase mb-1">Relato Completo</span>
-                <p className="text-text-muted italic bg-bg-base p-3 rounded border border-border-subtle leading-relaxed">
-                  "{ticket.description || ticket.subject}"
-                </p>
-              </div>
-            </div>
+            <TicketDetailSummary ticket={ticket} showStatus />
           </div>
         </div>
       )}
@@ -140,3 +117,4 @@ export function ClientChatPage() {
     </div>
   );
 }
+

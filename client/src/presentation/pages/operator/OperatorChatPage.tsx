@@ -3,7 +3,9 @@ import { useOperatorChatController } from '../../controllers/useOperatorChatCont
 import { ThemeToggle } from '../../components/common/ThemeToggle';
 import { ChatFeed } from '../../components/chat/ChatFeed';
 import { ChatInput } from '../../components/chat/ChatInput';
+import { Button } from '../../components/common/Button';
 import { ArrowLeft, Check, Bot } from 'lucide-react';
+import { TicketDetailSummary } from '../../components/dashboard/TicketDetailSummary';
 
 export function OperatorChatPage() {
   const {
@@ -27,12 +29,9 @@ export function OperatorChatPage() {
           <Bot className="w-12 h-12 text-text-muted mx-auto" />
           <h2 className="text-lg font-bold">Ticket não encontrado</h2>
           <p className="text-xs text-text-muted">Verifique se o ticket ainda existe e está ativo.</p>
-          <button
-            onClick={handleLeave}
-            className="px-4 py-2 bg-secondary hover:opacity-90 text-white rounded text-xs font-semibold cursor-pointer border-0"
-          >
+          <Button onClick={handleLeave}>
             Voltar ao Painel
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -43,12 +42,13 @@ export function OperatorChatPage() {
       {/* Header do Chat */}
       <header className="border-b border-border-subtle bg-bg-panel px-6 py-4 flex items-center justify-between sticky top-0 z-10 transition-colors">
         <div className="flex items-center space-x-3">
-          <button
+          <Button
             onClick={handleLeave}
-            className="p-2 hover:bg-secondary/10 border border-transparent rounded transition-colors cursor-pointer bg-transparent text-secondary"
+            variant="text"
+            className="p-2"
           >
             <ArrowLeft className="w-4 h-4" />
-          </button>
+          </Button>
           <div>
             <h2 className="text-sm font-bold text-text-main flex items-center gap-1.5 animate-none">
               Atendendo: {ticket.customerName}
@@ -66,12 +66,12 @@ export function OperatorChatPage() {
         <div className="flex items-center gap-3">
           <ThemeToggle />
           {ticket.status !== 'resolved' && (
-            <button
+            <Button
               onClick={handleResolve}
-              className="text-xs px-3.5 py-2 bg-secondary hover:opacity-90 text-white font-semibold rounded flex items-center gap-1 transition-colors cursor-pointer border-0"
+              className="flex items-center gap-1"
             >
               <Check className="w-3.5 h-3.5" /> Finalizar Atendimento
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -79,49 +79,9 @@ export function OperatorChatPage() {
       {/* Grid Principal com Informações Expandidas do Questionário */}
       <div className="flex-1 grid grid-cols-1 md:grid-cols-4 min-h-0">
         {/* Painel Informações Fila */}
-        <aside className="md:col-span-1 border-r border-border-subtle bg-bg-base/30 p-6 space-y-6 hidden md:block overflow-y-auto transition-colors">
-          <div>
-            <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Dados da Solicitação</h3>
-
-            <div className="space-y-4">
-              {/* Categoria */}
-              <div>
-                <span className="text-[10px] text-text-muted block">Categoria do Pedido:</span>
-                <span className="font-bold text-xs text-text-main mt-1 block">
-                  {ticket.category || 'Não Informada'}
-                </span>
-              </div>
-
-              {/* Título Resumido */}
-              <div>
-                <span className="text-[10px] text-text-muted block">Resumo do Caso:</span>
-                <span className="font-semibold text-xs text-text-main block mt-0.5 leading-tight">{ticket.subject}</span>
-              </div>
-
-              {/* Descrição Detalhada */}
-              <div>
-                <span className="text-[10px] text-text-muted block">Relato Completo:</span>
-                <p className="text-xs text-text-muted mt-1 p-3 bg-bg-base border border-border-subtle rounded leading-relaxed max-h-[220px] overflow-y-auto font-normal">
-                  "{ticket.description || ticket.subject}"
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4 text-xs text-text-muted border-t border-border-subtle pt-5">
-            <div className="flex justify-between">
-              <span>Prioridade de Triagem IA:</span>
-              <span className="font-bold text-text-main uppercase">{ticket.priority}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Estresse do Cliente:</span>
-              <span className="font-bold text-text-main">{ticket.stressLevel}/5</span>
-            </div>
-            <div className="flex justify-between">
-              <span>ID do Protocolo:</span>
-              <span className="font-mono text-text-main">#{ticket.id.slice(0, 8).toUpperCase()}</span>
-            </div>
-          </div>
+        <aside className="md:col-span-1 border-r border-border-subtle bg-bg-base/30 p-6 hidden md:block overflow-y-auto transition-colors">
+          <h3 className="text-xs font-bold text-text-muted uppercase tracking-wider mb-4">Dados da Solicitação</h3>
+          <TicketDetailSummary ticket={ticket} showPriority />
         </aside>
 
         {/* Painel do Chat */}
@@ -145,3 +105,4 @@ export function OperatorChatPage() {
     </div>
   );
 }
+

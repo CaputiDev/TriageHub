@@ -1,8 +1,8 @@
 import { Navigate } from 'react-router-dom';
 import { useClientDashboardController } from '../../controllers/useClientDashboardController';
 import { ClientTicketCard } from '../../components/dashboard/ClientTicketCard';
-import { ThemeToggle } from '../../components/common/ThemeToggle';
-import logoUrl from '../../../assets/logo.png';
+import { Header } from '../../components/common/Header';
+import { Button } from '../../components/common/Button';
 import { LogOut, Plus } from 'lucide-react';
 
 export function ClientDashboardPage() {
@@ -22,22 +22,19 @@ export function ClientDashboardPage() {
   return (
     <div className="min-h-screen bg-bg-base text-text-main flex flex-col font-sans transition-colors duration-200">
       {/* Header */}
-      <header className="border-b border-border-subtle bg-bg-panel px-6 py-3.5 flex items-center justify-between sticky top-0 z-10 transition-colors">
-        <div className="flex items-center space-x-2">
-          <img src={logoUrl} alt="TriageHub" className="w-5 h-5 object-contain opacity-80" />
-          <h1 className="text-xs font-bold text-text-main uppercase tracking-wider">TriageHub</h1>
-        </div>
-        <div className="text-[11px] text-text-muted flex items-center gap-3">
-          <span>{currentUser.name}</span>
-          <ThemeToggle />
-          <button
+      <Header
+        userName={currentUser.name}
+        rightActions={
+          <Button
             onClick={handleLogout}
-            className="text-[11px] text-secondary hover:opacity-80 transition-colors flex items-center gap-1 font-medium cursor-pointer bg-transparent border-0"
+            variant="text"
+            size="sm"
+            className="flex items-center gap-1"
           >
             <LogOut className="w-3.5 h-3.5" /> Sair
-          </button>
-        </div>
-      </header>
+          </Button>
+        }
+      />
 
       {/* Main Workspace */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-6 space-y-6">
@@ -49,12 +46,13 @@ export function ClientDashboardPage() {
               Gerencie seus chamados de suporte em tempo real ou crie uma nova solicitação.
             </p>
           </div>
-          <button
+          <Button
             onClick={navigateToCreate}
-            className="px-3 py-1.5 bg-secondary hover:opacity-90 text-white text-xs font-medium rounded transition-colors cursor-pointer flex items-center gap-1 shadow-none border-0"
+            size="sm"
+            className="flex items-center gap-1"
           >
             <Plus className="w-3.5 h-3.5" /> Nova solicitação
-          </button>
+          </Button>
         </section>
 
         {/* Tickets Columns */}
@@ -109,3 +107,4 @@ export function ClientDashboardPage() {
     </div>
   );
 }
+
