@@ -1,186 +1,156 @@
-# 🚀 TriageHub - Central de Triagem com SQLite, Roteamento e Chat Multi-Usuário
+# 🚀 TriageHub - Central de Triagem Inteligente em Tempo Real
 
-Bem-vindo ao **TriageHub**, um sistema de suporte ao cliente de alto desempenho em tempo real. Esta versão traz uma evolução arquitetural robusta: o sistema funciona como uma **ponte de comunicação multi-usuário bidirecional**, persistindo todos os tickets e mensagens em um banco de dados relacional **SQLite**, navegando entre **5 páginas/rotas dinâmicas** no frontend, e realizando a **autenticação segura criptografada com Argon2** combinada a um **questionário de suporte detalhado**.
+O **TriageHub** é uma solução de suporte ao cliente de alto desempenho em tempo real, operando com comunicação bidirecional persistente via WebSockets e armazenamento relacional em banco de dados SQLite. 
 
----
-
-## 📌 Índice
-1. [Sobre o Projeto](#1-sobre-o-projeto)
-2. [As 5 Páginas do Frontend (Rotas)](#2-as-5-páginas-do-frontend-rotas)
-3. [Segurança e Autenticação com Argon2](#3-segurança-e-autenticação-com-argon2)
-4. [Persistência Relacional com SQLite](#4-persistência-relacional-com-sqlite)
-5. [Questionário Estendido e Triagem IA](#5-questionário-estendido-e-triagem-ia)
-    - [5.1 O Questionário Expandido do Cliente](#51-o-questionário-expandido-do-cliente)
-    - [5.2 Designação Dinâmica e Fila Offline](#52-designação-dinâmica-e-fila-offline)
-6. [Instalação e Execução](#6-instalação-e-execução)
-    - [6.1 Executando o Servidor (Backend com Nodemon)](#61-executando-o-servidor-backend-com-nodemon)
-    - [6.2 Executando o Cliente (Frontend)](#62-executando-o-cliente-frontend)
-7. [Manual Prático de Testes Integrados](#7-manual-prático-de-testes-integrados)
-8. [Licença](#8-licença)
+O sistema integra um **motor de triagem de IA** que avalia o nível de estresse do cliente e a gravidade dos relatos em tempo real para priorizar a fila de atendimento dos especialistas. A segurança é assegurada por meio de criptografia forte utilizando hashes **Argon2** no backend.
 
 ---
 
-## 1. Sobre o Projeto
-O **TriageHub** soluciona o gargalo operacional de centrais de atendimento ao cliente integrando um **motor de triagem em tempo real**. À medida que novos tickets chegam, o backend analisa o conteúdo das mensagens e classifica automaticamente o nível de estresse do cliente e a prioridade de atendimento.
+## 🏗️ Arquitetura do Projeto
 
-Toda a arquitetura é baseada em comunicação síncrona bi-direcional persistente via WebSockets e SQLite, garantindo que as mensagens de chat e os tickets de suporte permaneçam seguros e reativos em tempo real.
+O projeto é dividido em duas partes principais:
+* `/server`: Servidor WebSocket desenvolvido em Node.js com SQLite e hashing Argon2.
+* `/client`: Portal web desenvolvido em React + TypeScript, recentemente refatorado utilizando os princípios da **Clean Architecture** (Arquitetura Limpa).
+
+### Clean Architecture no Frontend (`/client`)
+
+A pasta `client/src` está estruturada em camadas bem definidas e desacopladas, facilitando a escalabilidade, manutenibilidade e testes:
+
+```text
+client/src/
+├── core/                       # 1. CAMADA DOMAIN (Regras de Negócio e Entidades)
+│   └── entities/
+│       ├── user.ts             # Entidades/Estados do Usuário logado
+│       ├── ticket.ts           # Interfaces de Ticket e Mensagem
+│       └── triage.ts           # Definições de log de triagem de IA
+├── data/                       # 2. CAMADA DATA (Infraestrutura, Conexões e Gateways)
+│   ├── datasources/
+│   │   └── websocket/
+│   │       └── websocketService.ts # Gerencia o socket nativo e concorrência de Promises
+│   └── repositories/
+│       └── ticketRepository.ts # Implementação de repositório para acesso aos dados
+├── store/                      # 3. CAMADA STATE (Estado global reativo)
+│   └── useTicketStore.ts       # Estado Zustand contendo tickets ordenados por regras de negócio
+└── presentation/               # 4. CAMADA PRESENTATION (Componentes Visuais, Views e Controladores)
+    ├── components/             # Componentes Visuais Reutilizáveis (Dumb Components)
+    │   ├── common/             # Componentes genéricos como ThemeToggle
+    │   ├── chat/               # Visualizações do Feed e Inputs de chat
+    │   └── dashboard/          # Cards de fila, estatísticas operacionais e logs
+    ├── controllers/            # Controladores / View-Models (Hooks com estado local e regras de tela)
+    │   ├── useLoginController.ts
+    │   ├── useClientDashboardController.ts
+    │   ├── useClientCreateController.ts
+    │   ├── useClientChatController.ts
+    │   ├── useOperatorDashboardController.ts
+    │   └── useOperatorChatController.ts
+    └── pages/                  # Views / Páginas Declarativas (Layouts e Tailwind CSS)
+        ├── LoginPage.tsx
+        ├── client/             # Páginas exclusivas do Cliente (Dashboard, Abertura e Chat)
+        └── operator/           # Páginas exclusivas do Operador (Dashboard e Chat)
+```
+
+---
+
+## ⚙️ Fluxo de Dados e Comunicação em Tempo Real
+
+A comunicação baseia-se em um canal persistente via WebSocket (`ws://localhost:8080`).
 
 ```mermaid
-graph TD
-    subgraph Cliente [Tela do Cliente]
-        LoginClient[1. Login / Registro Seguro] --> Form[2. Questionário Detalhado]
-        Form --> ChatClient[3. Chat Cliente em Tempo Real]
-    end
+sequenceDiagram
+    participant Cliente as Dashboard do Cliente
+    participant Repositorio as ticketRepository.ts
+    participant ServicoWS as websocketService.ts
+    participant Backend as Servidor WebSocket (SQLite)
 
-    subgraph Atendente [Painel do Atendente]
-        LoginAgent[1. Login / Registro Seguro] --> Dash[4. Dashboard de Fila]
-        Dash --> ChatAgent[5. Chat Atendente em Tempo Real]
-    end
-
-    subgraph Backend [Servidor Proxy WS & DB]
-        WS[WebSocket Server] <--> DB[(SQLite: support.db)]
-    end
-
-    ChatClient <-->|WebSockets| WS
-    ChatAgent <-->|WebSockets| WS
+    Cliente->>Repositorio: createTicket(dados)
+    Repositorio->>ServicoWS: createTicket(dados)
+    Note over ServicoWS: Registra Promise temporária
+    ServicoWS->>Backend: Envia JSON "CREATE_TICKET"
+    Note over Backend: Motor de IA calcula estresse e prioridade
+    Backend-->>ServicoWS: Retorna "TICKET_CREATED" ou "TICKET_UPDATE"
+    Note over ServicoWS: Resolve a Promise reativa
+    ServicoWS-->>Repositorio: Retorna objeto Ticket
+    Repositorio-->>Cliente: Redireciona para o Chat
 ```
 
 ---
 
-## 2. As 5 Páginas do Frontend (Rotas)
-Utilizando o `react-router-dom` com `HashRouter` (100% resiliente a builds estáticos), implementamos as seguintes 5 páginas completas:
+## 🚀 Como Executar o Projeto
 
-1. **Página de Autenticação (`#/`)**: Portal central unificado com toggle dinâmico entre **Login** e **Cadastro**. Solicita E-mail, Senha e, em caso de novos cadastros, o Nome Completo e o Cargo (Cliente ou Atendente).
-2. **Formulário de Solicitação (`#/client/create`)**: Exclusivo para clientes. Exibe o questionário estendido com 5 perguntas detalhadas para contextualização do problema e checagem de palavras urgentes em tempo real.
-3. **Chat em Tempo Real do Cliente (`#/client/chat/:ticketId`)**: Tela de atendimento, exibindo a conversa em tempo real e uma barra lateral contendo todos os dados detalhados fornecidos pelo cliente (Categoria, Título, Urgência e Relato Completo).
-4. **Dashboard do Atendente (`#/operator/dashboard`)**: Painel administrativo exibindo KPIs em tempo real, filtros dinâmicos e o feed de logs de análise IA.
-5. **Chat de Atendimento do Atendente (`#/operator/chat/:ticketId`)**: Tela focada de conversação ativa para o atendente, exibindo a barra lateral com as informações detalhadas e ações de encerramento do ticket.
+### Pré-requisitos
+* Node.js (versão 18 ou superior)
+* npm (gerenciador de pacotes padrão)
 
 ---
 
-## 3. Segurança e Autenticação com Argon2
-Assegurando o cumprimento de diretrizes rígidas de segurança corporativa, todas as senhas de usuários são protegidas no banco de dados SQLite:
-- **Hach/Salting robusto**: O backend utiliza a biblioteca `argon2` para aplicar hashing de mão única utilizando parâmetros de ponta na criptografia.
-- **Login e Registro Síncronos**: Ao tentar autenticar no frontend, o WebSocket envia o payload `AUTH`. O backend verifica o email:
-  - Se cadastrado, executa `argon2.verify()` na senha enviada contra o hash armazenado para validar o login.
-  - Se novo, gera o hash seguro da senha via `argon2.hash()` e insere as credenciais na tabela `users` do banco SQLite.
+### 1. Executando o Servidor (Backend)
 
----
-
-## 4. Persistência Relacional com SQLite
-Para garantir que nenhuma conversa, ticket ou usuário seja perdido ao reiniciar os servidores, implementamos o banco de dados **SQLite** (`support.db`) no backend com a seguinte estrutura de tabelas:
-
-```sql
--- Tabela de Usuários Criptografada
-CREATE TABLE IF NOT EXISTS users (
-  email TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  passwordHash TEXT NOT NULL,
-  role TEXT NOT NULL
-);
-
--- Tabela de Tickets (Questionário Expandido)
-CREATE TABLE IF NOT EXISTS tickets (
-  id TEXT PRIMARY KEY,
-  customerName TEXT NOT NULL,
-  customerEmail TEXT NOT NULL,
-  channel TEXT NOT NULL,
-  category TEXT NOT NULL,
-  subject TEXT NOT NULL,
-  description TEXT NOT NULL,
-  priority TEXT NOT NULL,
-  status TEXT NOT NULL,
-  stressLevel INTEGER NOT NULL,
-  operatorName TEXT NOT NULL,
-  createdAt TEXT NOT NULL
-);
-
--- Tabela de Mensagens de Chat
-CREATE TABLE IF NOT EXISTS messages (
-  id TEXT PRIMARY KEY,
-  ticketId TEXT NOT NULL,
-  sender TEXT NOT NULL, -- 'client' ou 'agent'
-  text TEXT NOT NULL,
-  timestamp TEXT NOT NULL,
-  FOREIGN KEY(ticketId) REFERENCES tickets(id) ON DELETE CASCADE
-);
-```
-
----
-
-## 5. Questionário Estendido e Triagem IA
-
-### 5.1 O Questionário Expandido do Cliente
-Para que o especialista em atendimento obtenha as informações completas sobre o caso assim que assumir o chat, o cliente preenche o seguinte formulário estendido:
-1. **Título do Problema (Resumo)**: Um campo curto sintetizando o problema.
-2. **Categoria do Problema**: Seleção entre `Técnico (Hardware/Software)`, `Financeiro & Cobrança`, `Dúvidas & Configurações` e `Reclamações & Cancelamento`.
-3. **Urgência Autodeclarada (1 a 5)**: A percepção do cliente sobre a gravidade da situação.
-4. **Canal Preferencial**: Escolha entre WhatsApp e Webchat.
-5. **Descrição Detalhada do Caso**: Um texto longo relatando o ocorrido. O motor de triagem do backend escuta este campo em busca das palavras-chave de estresse (`"PROCON"`, `"cancelar"`, `"urgente"`, `"ruim"`, `"advogado"`) para determinar a prioridade automática.
-
-### 5.2 Designação Dinâmica e Fila Offline
-- **Atendente Online**: Se houver técnicos conectados (identificados após o login), o sistema atribui automaticamente um deles de forma aleatória para iniciar o chat e despacha a mensagem automática de boas-vindas do técnico.
-- **Atendente Offline**: Se nenhum técnico estiver logado, o ticket é marcado como `"Aguardando Atendente"`, exibindo a mensagem automática de espera do sistema. Assim que qualquer atendente logar, ele **assumirá automaticamente** o ticket reativamente!
-
----
-
-## 6. Instalação e Execução
-
-### 6.1 Executando o Servidor (Backend com Nodemon)
 1. Acesse o diretório `server`:
    ```bash
    cd server
    ```
-2. Instale as dependências (que agora incluem `argon2` e `sqlite3`):
+2. Instale as dependências:
    ```bash
    npm install
    ```
-3. Inicie o servidor WebSocket com suporte a hot-reload:
+3. Inicie o servidor:
    ```bash
    npm run dev
    ```
-   *O arquivo `support.db` será criado no diretório `server/` e as tabelas serão instanciadas automaticamente.*
-
-> [!TIP]
-> Caso você tenha rodado versões anteriores do projeto, pare o processo do servidor e apague o arquivo `server/support.db` para que a nova tabela de usuários e colunas expandidas sejam criadas de forma limpa!
+   *O arquivo do banco de dados `support.db` (SQLite) será gerado automaticamente no diretório `server/` se não existir, instanciando todas as tabelas e relacionamentos.*
 
 ---
 
-### 6.2 Executando o Cliente (Frontend)
-1. Abra um segundo terminal e acesse a pasta `client`:
+### 2. Executando o Cliente (Frontend)
+
+1. Acesse o diretório `client`:
    ```bash
    cd client
    ```
-2. Instale as dependências do frontend:
+2. Instale as dependências:
    ```bash
    npm install
    ```
-3. Inicie o servidor do Vite:
+3. Inicie o servidor de desenvolvimento do Vite:
    ```bash
    npm run dev
    ```
-4. Abra o endereço no navegador (geralmente `http://localhost:5173`).
+4. Acesse a URL fornecida pelo Vite no navegador (ex: `http://localhost:5173`).
 
 ---
 
-## 7. Manual Prático de Testes Integrados
+## 🛠️ Tecnologias Utilizadas
 
-Para testar a segurança do Argon2 e a exibição rica de dados no chat:
+### Frontend (`client/`)
+* **React 19 & TypeScript**: Interface reativa e fortemente tipada.
+* **Vite**: Build tooling ultrarrápido para desenvolvimento frontend.
+* **Tailwind CSS v4**: Estilização moderna e utilitária integrada.
+* **Zustand v5**: Gerenciamento de estado global otimizado.
+* **Lucide React**: Biblioteca de ícones modernos.
+* **React Router DOM v7**: Controle de rotas dinâmicas e segurança via `HashRouter`.
 
-1. **Faça um Novo Cadastro**:
-   - Acesse a URL no navegador. Clique em *"Ainda não tem conta? Cadastre-se"*.
-   - Digite um E-mail (`carlos@cliente.com`), Senha (`senha123`), Nome (`Carlos Cliente`) e escolha o papel **Cliente**. Clique em cadastrar. 
-   - O backend salvará no SQLite o hash criptografado com Argon2.
-2. **Responda ao Questionário Detalhado**:
-   - Pedro será redirecionado para a criação de suporte. Preencha a Categoria (*Financeiro*), Título (*Cobrança Duplicada*), escolha Urgência *4/5*, Canal *WhatsApp* e descreva detalhadamente o caso no campo longo.
-   - Envie. Pedro será levado para o chat.
-3. **Abra outro navegador e faça Login do Técnico**:
-   - No segundo navegador, acesse a URL. Crie uma conta ou faça login como Atendente: E-mail (`alexandre@tecnico.com`), Senha (`senha456`), Nome (`Técnico Alexandre`).
-   - Alexandre se conectará e assumirá Pedro automaticamente em tempo real!
-4. **Confirmação Visual Rica**:
-   - Em ambos os navegadores, no chat, observe a barra lateral esquerda preenchida com **toda a descrição do questionário estendido** (Categoria Financeiro, Urgência 4/5, Título do Problema e Relato Completo Pedro). Isso garante total clareza no atendimento operacional!
+### Backend (`server/`)
+* **Node.js & ws**: Servidor de WebSockets de alta velocidade.
+* **SQLite3**: Banco de dados relacional leve e embutido para persistência segura de dados.
+* **Argon2**: Algoritmo moderno e recomendado para criptografia segura de senhas.
 
 ---
 
-## 8. Licença
-Este software é fornecido livremente sob a [Licença MIT](LICENSE).
+## 📖 Fluxo de Teste Prático
+
+Para testar a comunicação em tempo real, o motor de triagem IA e a segurança com Argon2:
+
+1. **Abra duas abas ou janelas de navegador diferentes** (preferencialmente uma delas em modo anônimo).
+2. **Janela A: Cadastre e Logue um Cliente**
+   - Acesse `http://localhost:5173`.
+   - Clique em *"Cadastre-se"*, digite os dados e selecione o cargo **Cliente**.
+   - Abra um novo ticket.
+3. **Janela B: Cadastre e Logue um Atendente/Operador**
+   - Na janela anônima, faça o cadastro como **Atendente**.
+   - Você entrará no painel de controle operacional. O chamado do cliente da **Janela A** aparecerá no topo da fila (na barra lateral de solicitações propostas).
+   - Clique em **Aceitar Atendimento**. A conversa em tempo real começará instantaneamente em ambas as telas!
+
+---
+
+## 📄 Licença
+Este projeto é distribuído livremente sob a [Licença MIT](LICENSE).

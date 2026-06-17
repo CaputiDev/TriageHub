@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import type { Ticket, TriageLog } from '../types/ticket';
+import type { Ticket } from '../core/entities/ticket';
+import type { TriageLog } from '../core/entities/triage';
+import type { UserState } from '../core/entities/user';
 
 // Peso das prioridades para a ordenação secundária
 const priorityWeight = {
@@ -36,15 +38,6 @@ const sortTickets = (tickets: Ticket[]): Ticket[] => {
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 };
-
-interface UserState {
-  id: string;
-  name: string;
-  role: 'client' | 'agent';
-  email: string;
-  funcao?: string;
-  codigoIdentificacao?: string;
-}
 
 interface TicketState {
   // Estado de Autenticação

@@ -26,13 +26,3 @@ export interface Ticket {
   messages: Message[];
   createdAt: string; // ISO String
 }
-
-export interface TriageLog {
-  id: string;
-  timestamp: string;
-  customerName: string;
-  subject: string;
-  detectedKeywords: string[];
-  priority: TicketPriority;
-  stressLevel: number;
-}
