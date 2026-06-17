@@ -28,7 +28,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         if (isSystem) {
           return (
             <div key={msg.id} className="flex justify-center my-1">
-              <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono tracking-tight">
+              <span className="text-[10px] text-text-muted font-mono tracking-tight">
                 {msg.text}
               </span>
             </div>
@@ -56,14 +56,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
             <div className="flex flex-col gap-0.5 max-w-[75%]">
               {/* Sender name above bubble */}
-              <span className={`text-[9px] text-zinc-400 dark:text-zinc-500 font-medium ${isMe ? 'text-right' : 'text-left'}`}>
+              <span className={`text-[9px] text-text-muted font-medium ${isMe ? 'text-right' : 'text-left'}`}>
                 {senderLabel}
               </span>
               
               <div className={`px-3 py-2 rounded text-xs shadow-none border ${
                 isMe
-                  ? 'bg-zinc-900 text-white border-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 dark:border-zinc-100'
-                  : 'bg-zinc-100 text-zinc-900 border-zinc-200 dark:bg-zinc-900 dark:text-zinc-100 dark:border-zinc-800'
+                  ? 'bg-secondary text-white border-secondary'
+                  : 'bg-tertiary text-primary border-tertiary'
               }`}>
                 <p className="leading-relaxed break-words whitespace-pre-wrap">{msg.text}</p>
                 

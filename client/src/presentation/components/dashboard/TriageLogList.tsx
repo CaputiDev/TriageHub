@@ -8,7 +8,7 @@ interface TriageLogListProps {
 export const TriageLogList: React.FC<TriageLogListProps> = ({ logs }) => {
   if (logs.length === 0) {
     return (
-      <div className="text-center py-12 text-zinc-500 italic">
+      <div className="text-center py-12 text-text-muted italic">
         Aguardando atividades de clientes...
       </div>
     );
@@ -23,19 +23,19 @@ export const TriageLogList: React.FC<TriageLogListProps> = ({ logs }) => {
             key={log.id}
             className={`p-3 rounded border transition-colors ${
               isStress
-                ? 'bg-red-500/5 border-red-200/50 dark:border-red-900/30 text-red-700 dark:text-red-400'
-                : 'bg-zinc-50/50 dark:bg-zinc-900/10 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
+                ? 'bg-red-500/5 border-red-500/20 text-red-500'
+                : 'bg-bg-panel border-border-subtle text-text-main'
             }`}
           >
             <div className="flex justify-between mb-1">
-              <span className={isStress ? 'text-red-500 font-bold' : 'text-zinc-500'}>
+              <span className={isStress ? 'text-red-500 font-bold' : 'text-text-muted'}>
                 {isStress ? 'ALERTA IA CRÍTICO' : 'TRIADO'}
               </span>
-              <span className="text-zinc-400 dark:text-zinc-500">
+              <span className="text-text-muted">
                 {new Date(log.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
               </span>
             </div>
-            <div className="space-y-1 text-zinc-700 dark:text-zinc-300">
+            <div className="space-y-1 text-text-main">
               <div>Cliente: {log.customerName}</div>
               <div className="line-clamp-1">Assunto: "{log.subject}"</div>
               {log.detectedKeywords.length > 0 && (
@@ -46,7 +46,7 @@ export const TriageLogList: React.FC<TriageLogListProps> = ({ logs }) => {
                   </span>
                 </div>
               )}
-              <div className="pt-1.5 mt-1.5 border-t border-zinc-200 dark:border-zinc-800 flex justify-between font-bold text-zinc-500">
+              <div className="pt-1.5 mt-1.5 border-t border-border-subtle flex justify-between font-bold text-text-muted">
                 <span>PRIORIDADE: {log.priority.toUpperCase()}</span>
                 <span>ESTRESSE: {log.stressLevel}/5</span>
               </div>

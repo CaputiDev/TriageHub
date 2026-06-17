@@ -21,7 +21,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-      className="p-2.5 rounded-xl border transition-all duration-300 cursor-pointer flex items-center justify-center bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 shadow-sm dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-indigo-400 shrink-0"
+      className="p-2 rounded border transition-colors cursor-pointer flex items-center justify-center bg-bg-panel border-secondary text-secondary hover:bg-secondary hover:text-white shrink-0"
       title={theme === 'dark' ? 'Alternar para Modo Claro' : 'Alternar para Modo Escuro'}
     >
       {theme === 'dark' ? (

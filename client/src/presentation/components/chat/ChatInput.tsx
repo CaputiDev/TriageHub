@@ -29,8 +29,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   // 1. Status Resolvido / Concluído
   if (status === 'resolved') {
     return (
-      <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 text-center">
-        <span className="text-[11px] text-zinc-400 dark:text-zinc-500 italic">
+      <div className="p-3 border-t border-border-subtle text-center">
+        <span className="text-[11px] text-text-muted italic">
           {currentUserRole === 'client' 
             ? 'Este chamado foi resolvido e finalizado pelo especialista.'
             : 'Este atendimento foi encerrado.'}
@@ -43,8 +43,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   if (status === 'pending_acceptance') {
     if (currentUserRole === 'client') {
       return (
-        <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
-          <div className="text-center text-[10px] text-zinc-400 dark:text-zinc-550 italic">
+        <div className="p-3 border-t border-border-subtle space-y-2">
+          <div className="text-center text-[10px] text-text-muted italic">
             Aguardando confirmação de um especialista... Você já pode enviar mensagens.
           </div>
           <form onSubmit={handleSubmit} className="flex gap-2">
@@ -53,12 +53,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               placeholder="Escreva sua mensagem..."
               value={text}
               onChange={(e) => setText(e.target.value)}
-              className="flex-1 px-3 py-2 text-xs bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600 text-zinc-800 dark:text-zinc-200 transition-colors"
+              className="flex-1 px-3 py-2 text-xs bg-bg-panel border border-border-subtle rounded focus:outline-none focus:border-secondary text-text-main transition-colors"
             />
             <button
               type="submit"
               disabled={!text.trim()}
-              className="px-4 py-2 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 rounded text-zinc-800 dark:text-zinc-200 transition-colors cursor-pointer flex items-center justify-center bg-transparent"
+              className="px-4 py-2 bg-secondary hover:opacity-90 disabled:opacity-50 text-white rounded transition-colors cursor-pointer flex items-center justify-center border border-secondary"
             >
               <Send className="w-3.5 h-3.5" />
             </button>
@@ -67,8 +67,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       );
     } else {
       return (
-        <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 text-center">
-          <span className="text-[11px] text-zinc-400 dark:text-zinc-550 italic animate-pulse">
+        <div className="p-3 border-t border-border-subtle text-center">
+          <span className="text-[11px] text-text-muted italic animate-pulse">
             Este chamado está aguardando confirmação de aceite pelo atendente.
           </span>
         </div>
@@ -82,19 +82,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     : `Responder a ${customerName}...`;
 
   return (
-    <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-950/30">
+    <div className="p-3 border-t border-border-subtle bg-bg-panel/50">
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
           type="text"
           placeholder={placeholder}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="flex-1 px-3 py-2 text-xs bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600 text-zinc-800 dark:text-zinc-200 transition-colors"
+          className="flex-1 px-3 py-2 text-xs bg-bg-panel border border-border-subtle rounded focus:outline-none focus:border-secondary text-text-main transition-colors"
         />
         <button
           type="submit"
           disabled={!text.trim()}
-          className="px-4 py-2 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900 rounded text-zinc-800 dark:text-zinc-200 transition-colors cursor-pointer flex items-center justify-center bg-transparent"
+          className="px-4 py-2 bg-secondary hover:opacity-90 disabled:opacity-50 text-white rounded transition-colors cursor-pointer flex items-center justify-center border border-secondary"
         >
           <Send className="w-3.5 h-3.5" />
         </button>

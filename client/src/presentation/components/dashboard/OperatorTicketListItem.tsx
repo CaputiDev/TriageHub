@@ -31,12 +31,12 @@ export const OperatorTicketListItem: React.FC<OperatorTicketListItemProps> = ({
   };
 
   const getPriorityColorClass = (priority: string) => {
-    if (ticket.status === 'resolved') return 'text-zinc-400 dark:text-zinc-550';
+    if (ticket.status === 'resolved') return 'text-text-muted';
     switch (priority) {
       case 'critical': return 'text-red-500 font-bold';
       case 'high': return 'text-amber-500 font-semibold';
-      case 'medium': return 'text-zinc-600 dark:text-zinc-300';
-      default: return 'text-zinc-400 dark:text-zinc-500';
+      case 'medium': return 'text-text-main';
+      default: return 'text-text-muted';
     }
   };
 
@@ -45,11 +45,11 @@ export const OperatorTicketListItem: React.FC<OperatorTicketListItemProps> = ({
       onClick={() => onSelect(ticket.id)}
       className={`w-full text-left p-3 border rounded transition-colors cursor-pointer flex flex-col gap-1 ${
         isSelected
-          ? 'bg-zinc-100 dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700'
-          : 'bg-white dark:bg-zinc-950 border-zinc-200 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900/50'
+          ? 'bg-bg-base border-secondary'
+          : 'bg-bg-panel border-border-subtle hover:border-secondary'
       }`}
     >
-      <div className="flex items-center justify-between text-[10px] text-zinc-500 dark:text-zinc-400">
+      <div className="flex items-center justify-between text-[10px] text-text-muted">
         <span className="font-mono">
           #{ticket.id.slice(0, 8).toUpperCase()}
         </span>
@@ -59,7 +59,7 @@ export const OperatorTicketListItem: React.FC<OperatorTicketListItemProps> = ({
       </div>
 
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-bold text-xs text-zinc-900 dark:text-zinc-100 truncate flex-1">
+        <span className="font-bold text-xs text-text-main truncate flex-1">
           {ticket.customerName}
         </span>
         <span className={`text-[9px] font-mono uppercase shrink-0 ${getPriorityColorClass(ticket.priority)}`}>
@@ -67,11 +67,11 @@ export const OperatorTicketListItem: React.FC<OperatorTicketListItemProps> = ({
         </span>
       </div>
 
-      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-1 italic">
+      <p className="text-[11px] text-text-muted line-clamp-1 italic">
         "{lastText}"
       </p>
 
-      <div className="flex items-center justify-between text-[9px] text-zinc-400 dark:text-zinc-500 border-t border-zinc-100 dark:border-zinc-900/40 pt-1 mt-0.5">
+      <div className="flex items-center justify-between text-[9px] text-text-muted border-t border-border-subtle pt-1 mt-0.5">
         <div className="flex gap-2">
           <span>{ticket.channel}</span>
           <span>•</span>
