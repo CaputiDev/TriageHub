@@ -10,6 +10,13 @@ export interface Message {
   timestamp: string; // ISO String
 }
 
+export interface SystemLog {
+  id: string;
+  ticketId: string;
+  text: string;
+  timestamp: string; // ISO String
+}
+
 export interface Ticket {
   id: string;
   customerName: string;
@@ -24,5 +31,7 @@ export interface Ticket {
   operatorId?: string;
   operatorName: string;
   messages: Message[];
+  logs: SystemLog[];
   createdAt: string; // ISO String
 }
+

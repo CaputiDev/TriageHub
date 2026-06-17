@@ -23,18 +23,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-3">
       {messages.map((msg) => {
-        const isSystem = msg.sender === 'system' || msg.senderName === 'Sistema';
-
-        if (isSystem) {
-          return (
-            <div key={msg.id} className="flex justify-center my-1">
-              <span className="text-[10px] text-text-muted font-mono tracking-tight">
-                {msg.text}
-              </span>
-            </div>
-          );
-        }
-
         const isMe = currentUserRole === 'client' 
           ? msg.sender === 'client'
           : msg.sender === 'agent' && msg.senderName === currentUserName;

@@ -3,6 +3,7 @@ import type { Ticket } from '../../../core/entities/ticket';
 import type { UserState } from '../../../core/entities/user';
 import { ChatFeed } from '../chat/ChatFeed';
 import { ChatInput } from '../chat/ChatInput';
+import { ChatSystemLog } from '../chat/ChatSystemLog';
 import { getPriorityBadge } from './helpers';
 
 interface ActiveChatViewerProps {
@@ -36,7 +37,8 @@ export const ActiveChatViewer: React.FC<ActiveChatViewerProps> = ({
           </div>
         </div>
 
-        <div>
+        <div className="flex items-center gap-2">
+          <ChatSystemLog logs={ticket.logs ?? []} />
           {ticket.status !== 'resolved' && (
             <button
               onClick={() => onResolve(ticket.id)}

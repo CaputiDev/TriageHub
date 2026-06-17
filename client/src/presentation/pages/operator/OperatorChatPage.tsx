@@ -3,6 +3,7 @@ import { useOperatorChatController } from '../../controllers/useOperatorChatCont
 import { ThemeToggle } from '../../components/common/ThemeToggle';
 import { ChatFeed } from '../../components/chat/ChatFeed';
 import { ChatInput } from '../../components/chat/ChatInput';
+import { ChatSystemLog } from '../../components/chat/ChatSystemLog';
 import { Button } from '../../components/common/Button';
 import { ArrowLeft, Check, Bot } from 'lucide-react';
 import { TicketDetailSummary } from '../../components/dashboard/TicketDetailSummary';
@@ -64,6 +65,7 @@ export function OperatorChatPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          <ChatSystemLog logs={ticket.logs ?? []} />
           <ThemeToggle />
           {ticket.status !== 'resolved' && (
             <Button

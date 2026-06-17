@@ -86,6 +86,14 @@ async function initDatabase() {
       FOREIGN KEY(ticketId) REFERENCES tickets(id) ON DELETE CASCADE,
       FOREIGN KEY(senderId) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS ticket_logs (
+      id TEXT PRIMARY KEY,
+      ticketId TEXT NOT NULL,
+      text TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      FOREIGN KEY(ticketId) REFERENCES tickets(id) ON DELETE CASCADE
+    );
   `);
 
   // Garante que o usuário system_bot existe para integridade referencial dos logs e mensagens
@@ -127,6 +135,32 @@ function getActiveOperators() {
 }
 
 /**
+ * Separa linhas brutas de mensagens em mensagens de chat (client/agent)
+ * e logs legados do system_bot que ainda estejam na tabela messages.
+ */
+function splitMessages(rows) {
+  const chatMessages = [];
+  const legacyLogs = [];
+
+  for (const m of rows) {
+    if (m.senderRole === 'system') {
+      legacyLogs.push({ id: m.id, ticketId: m.ticketId, text: m.text, timestamp: m.timestamp });
+    } else {
+      chatMessages.push({
+        id: m.id,
+        ticketId: m.ticketId,
+        text: m.text,
+        timestamp: m.timestamp,
+        sender: m.senderRole === 'agent' ? 'agent' : 'client',
+        senderName: m.senderName
+      });
+    }
+  }
+
+  return { chatMessages, legacyLogs };
+}
+
+/**
  * Retorna os tickets formatados com nomes decodificados e histórico de mensagens.
  * Filtra por cliente se o usuário logado for cliente.
  */
@@ -154,7 +188,7 @@ async function getFullTickets(user = null) {
       ticket.operatorName = 'Aguardando Atendente';
     }
 
-    const messages = await db.all(`
+    const rows = await db.all(`
       SELECT m.id, m.ticketId, m.text, m.timestamp, u.role AS senderRole, u.name AS senderName
       FROM messages m
       JOIN users u ON m.senderId = u.id
@@ -162,14 +196,16 @@ async function getFullTickets(user = null) {
       ORDER BY m.timestamp ASC
     `, [ticket.id]);
 
-    ticket.messages = messages.map(m => ({
-      id: m.id,
-      ticketId: m.ticketId,
-      text: m.text,
-      timestamp: m.timestamp,
-      sender: m.senderRole === 'agent' ? 'agent' : 'client',
-      senderName: m.senderName
-    }));
+    const { chatMessages, legacyLogs } = splitMessages(rows);
+    ticket.messages = chatMessages;
+
+    const dbLogs = await db.all(`
+      SELECT id, ticketId, text, timestamp FROM ticket_logs
+      WHERE ticketId = ? ORDER BY timestamp ASC
+    `, [ticket.id]);
+
+    // Mescla logs legados (system_bot antigo) com ticket_logs, ordenado por timestamp
+    ticket.logs = [...legacyLogs, ...dbLogs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   }
   return tickets;
 }
@@ -192,7 +228,7 @@ async function getTicketById(ticketId) {
     ticket.operatorName = 'Aguardando Atendente';
   }
 
-  const messages = await db.all(`
+  const rows = await db.all(`
     SELECT m.id, m.ticketId, m.text, m.timestamp, u.role AS senderRole, u.name AS senderName
     FROM messages m
     JOIN users u ON m.senderId = u.id
@@ -200,14 +236,16 @@ async function getTicketById(ticketId) {
     ORDER BY m.timestamp ASC
   `, [ticket.id]);
 
-  ticket.messages = messages.map(m => ({
-    id: m.id,
-    ticketId: m.ticketId,
-    text: m.text,
-    timestamp: m.timestamp,
-    sender: m.senderRole === 'agent' ? 'agent' : 'client',
-    senderName: m.senderName
-  }));
+  const { chatMessages, legacyLogs } = splitMessages(rows);
+  ticket.messages = chatMessages;
+
+  const dbLogs = await db.all(`
+    SELECT id, ticketId, text, timestamp FROM ticket_logs
+    WHERE ticketId = ? ORDER BY timestamp ASC
+  `, [ticket.id]);
+
+  // Mescla logs legados com ticket_logs, ordenado por timestamp
+  ticket.logs = [...legacyLogs, ...dbLogs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
   return ticket;
 }
@@ -599,15 +637,24 @@ wss.on('connection', async (ws) => {
             [clientMsgId, ticketId, customerId, subject, createdAt]
           );
 
-          // 5. Cria Mensagem do Sistema apenas se não houver operador online (fila em espera)
+          // 5. Registra log do sistema sobre a fila de espera (sem operador online)
           if (!hasAgent) {
-            const welcomeMsgId = randomUUID();
-            const welcomeTimestamp = new Date(Date.now() + 1000).toISOString();
-            const welcomeText = `Olá! Agradecemos o seu contato. No momento, todos os nossos especialistas estão offline. Por favor, aguarde um momento que o primeiro técnico disponível que se conectar assumirá o seu atendimento!`;
+            const logId = randomUUID();
+            const logTimestamp = new Date(Date.now() + 1000).toISOString();
+            const logText = `Ticket criado e adicionado à fila de espera. Nenhum especialista online no momento — o primeiro técnico disponível assumirá o atendimento automaticamente.`;
 
             await db.run(
-              `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-              [welcomeMsgId, ticketId, 'system_bot', welcomeText, welcomeTimestamp]
+              `INSERT INTO ticket_logs (id, ticketId, text, timestamp) VALUES (?, ?, ?, ?)`,
+              [logId, ticketId, logText, logTimestamp]
+            );
+          } else {
+            const logId = randomUUID();
+            const logTimestamp = new Date(Date.now() + 1000).toISOString();
+            const logText = `Ticket criado e encaminhado para o especialista ${operatorName} para aceite.`;
+
+            await db.run(
+              `INSERT INTO ticket_logs (id, ticketId, text, timestamp) VALUES (?, ?, ?, ?)`,
+              [logId, ticketId, logText, logTimestamp]
             );
           }
 
@@ -709,14 +756,14 @@ wss.on('connection', async (ws) => {
                   newOperatorId = newOperator.id;
                   newStatus = 'pending_acceptance';
 
-                  // Insere mensagem de sistema notificando a transição
+                  // Registra log de sistema notificando a transição de atendente
                   const sysMsgId = randomUUID();
                   const sysMsgTimestamp = new Date(Date.now() + 500).toISOString();
-                  const sysMsgText = `Seu atendente anterior ficou offline. Sua mensagem foi recebida e o atendimento foi encaminhado para o especialista ${newOperator.name}. Por favor, aguarde a confirmação do novo atendente.`;
+                  const sysMsgText = `Atendente anterior desconectou. Ticket reatribuído para o especialista ${newOperator.name}. Aguardando aceite.`;
 
                   await db.run(
-                    `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-                    [sysMsgId, ticketId, 'system_bot', sysMsgText, sysMsgTimestamp]
+                    `INSERT INTO ticket_logs (id, ticketId, text, timestamp) VALUES (?, ?, ?, ?)`,
+                    [sysMsgId, ticketId, sysMsgText, sysMsgTimestamp]
                   );
 
                   console.log(`♻️ [SEND_MESSAGE] Ticket ${ticketId} reatribuído para ${newOperator.name}.`);
@@ -727,11 +774,11 @@ wss.on('connection', async (ws) => {
 
                   const sysMsgId = randomUUID();
                   const sysMsgTimestamp = new Date(Date.now() + 500).toISOString();
-                  const sysMsgText = `Seu atendente ficou offline e no momento não há outros especialistas disponíveis. Sua mensagem foi registrada e o primeiro técnico que entrar online assumirá o seu atendimento.`;
+                  const sysMsgText = `Atendente desconectou e não há outros especialistas online. Ticket devolvido para a fila de espera geral.`;
 
                   await db.run(
-                    `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-                    [sysMsgId, ticketId, 'system_bot', sysMsgText, sysMsgTimestamp]
+                    `INSERT INTO ticket_logs (id, ticketId, text, timestamp) VALUES (?, ?, ?, ?)`,
+                    [sysMsgId, ticketId, sysMsgText, sysMsgTimestamp]
                   );
 
                   console.log(`⚠️ [SEND_MESSAGE] Ticket ${ticketId} sem atendente online. Devolvido para a fila aberta.`);
@@ -771,8 +818,8 @@ wss.on('connection', async (ws) => {
           }
 
           const timestamp = new Date().toISOString();
-          const finalMsgId = randomUUID();
-          const finalMsgText = "Prezado cliente, identificamos que sua solicitação foi atendida. Este ticket foi encerrado pelo operador. Obrigado pelo contato!";
+          const finalLogId = randomUUID();
+          const finalLogText = `Ticket encerrado pelo operador ${ws.user.name}.`;
 
           // 1. Atualiza o status do ticket para resolved e estresse para 1 no SQLite
           await db.run(
@@ -780,10 +827,10 @@ wss.on('connection', async (ws) => {
             [ticketId]
           );
 
-          // 2. Insere mensagem automática de finalização no SQLite
+          // 2. Registra log de finalização em ticket_logs
           await db.run(
-            `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-            [finalMsgId, ticketId, ws.user.id, finalMsgText, timestamp]
+            `INSERT INTO ticket_logs (id, ticketId, text, timestamp) VALUES (?, ?, ?, ?)`,
+            [finalLogId, ticketId, finalLogText, timestamp]
           );
 
           // 3. Recarrega o ticket finalizado
@@ -1047,14 +1094,14 @@ wss.on('connection', async (ws) => {
                 [newOperator.id, ticket.id]
               );
 
-              // Insere bolha de mensagem do sistema indicando a transição
+              // Registra log de sistema sobre a transição de atendente
               const msgId = randomUUID();
-              const transitionText = `O técnico ${disconnectedAgentName} desconectou da sessão. O atendimento foi encaminhado para a fila de solicitações do técnico ${newOperator.name}.`;
+              const transitionText = `Técnico ${disconnectedAgentName} desconectou. Ticket encaminhado para ${newOperator.name} como pendente de aceite.`;
               const timestamp = new Date().toISOString();
 
               await db.run(
-                `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-                [msgId, ticket.id, 'system_bot', transitionText, timestamp]
+                `INSERT INTO ticket_logs (id, ticketId, text, timestamp) VALUES (?, ?, ?, ?)`,
+                [msgId, ticket.id, transitionText, timestamp]
               );
 
               // Carrega ticket atualizado e transmite a atualização
@@ -1070,14 +1117,14 @@ wss.on('connection', async (ws) => {
                 [ticket.id]
               );
 
-              // Insere mensagem informativa do sistema vinda do system_bot
+              // Registra log de sistema: sem atendentes online
               const msgId = randomUUID();
-              const fallbackText = `O técnico ${disconnectedAgentName} desconectou e no momento não há outros operadores online. Este atendimento retornou para a fila de espera geral.`;
+              const fallbackText = `Técnico ${disconnectedAgentName} desconectou. Nenhum outro operador online — ticket devolvido para a fila de espera geral.`;
               const timestamp = new Date().toISOString();
 
               await db.run(
-                `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-                [msgId, ticket.id, 'system_bot', fallbackText, timestamp]
+                `INSERT INTO ticket_logs (id, ticketId, text, timestamp) VALUES (?, ?, ?, ?)`,
+                [msgId, ticket.id, fallbackText, timestamp]
               );
 
               // Carrega ticket atualizado e transmite a atualização
