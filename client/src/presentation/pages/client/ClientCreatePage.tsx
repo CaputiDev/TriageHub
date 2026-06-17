@@ -1,9 +1,8 @@
-
 import { Navigate } from 'react-router-dom';
 import { useClientCreateController } from '../../controllers/useClientCreateController';
 import { ThemeToggle } from '../../components/common/ThemeToggle';
 import logoUrl from '../../../assets/logo.png';
-import { ArrowLeft, FileText, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 
 export function ClientCreatePage() {
   const {
@@ -25,92 +24,88 @@ export function ClientCreatePage() {
     navigateBack
   } = useClientCreateController();
 
-  // Route protection
   if (!currentUser || currentUser.role !== 'client') {
     return <Navigate to="/" replace />;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#080b11] text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-300">
-      <header className="border-b border-slate-202 border-slate-200 dark:border-slate-905 dark:border-slate-900 bg-white/95 dark:bg-[#0c101b]/95 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-10 transition-colors">
+    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 flex flex-col font-sans transition-colors duration-200">
+      {/* Header */}
+      <header className="border-b border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-900 px-6 py-3.5 flex items-center justify-between sticky top-0 z-10 transition-colors">
         <div className="flex items-center space-x-3">
           <button
             onClick={navigateBack}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-900 border border-transparent hover:border-slate-202 dark:hover:border-slate-808 rounded-lg transition-colors cursor-pointer flex items-center justify-center"
+            className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-transparent rounded transition-colors cursor-pointer flex items-center justify-center bg-transparent"
           >
-            <ArrowLeft className="w-4 h-4 text-slate-555 dark:text-slate-400" />
+            <ArrowLeft className="w-4 h-4 text-zinc-500" />
           </button>
           <div className="flex items-center space-x-2">
-            <img src={logoUrl} alt="TriageHub Logo" className="w-6 h-6 object-contain rounded-full border border-indigo-500/20" />
-            <h1 className="text-sm font-bold text-slate-901 text-slate-900 dark:text-white">Central do Cliente TriageHub</h1>
+            <img src={logoUrl} alt="TriageHub" className="w-5 h-5 object-contain opacity-80" />
+            <h1 className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-wider">TriageHub</h1>
           </div>
         </div>
-        <div className="text-xs text-slate-505 text-slate-500 dark:text-slate-405 dark:text-slate-400 flex items-center gap-3">
-          <span>Logado como: <strong>{currentUser.name}</strong> ({currentUser.email})</span>
+        <div className="text-[11px] text-zinc-505 text-zinc-500 dark:text-zinc-400 flex items-center gap-3">
+          <span>{currentUser.name}</span>
           <ThemeToggle />
         </div>
       </header>
 
-      <div className="flex-1 flex items-center justify-center p-6 my-4">
-        <div className="w-full max-w-2xl glass-panel p-8 rounded-3xl border border-slate-200/80 dark:border-slate-900/60 shadow-2xl space-y-6">
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="w-full max-w-lg p-6 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-808 dark:border-zinc-800 rounded-lg space-y-4">
           <div>
-            <h2 className="text-xl font-bold text-slate-901 text-slate-900 dark:text-white flex items-center gap-2">
-              <FileText className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /> Abertura de Ticket Expandida
-            </h2>
-            <p className="text-xs text-slate-505 text-slate-500 dark:text-slate-405 dark:text-slate-400 mt-1">
-              Responda ao questionário detalhado abaixo para fornecer o máximo de contexto ao especialista.
-            </p>
+            <h2 className="text-base font-bold text-zinc-900 dark:text-white">Abertura de Chamado</h2>
+            <p className="text-[11px] text-zinc-400 dark:text-zinc-500">Explique detalhadamente o seu problema técnico ou financeiro.</p>
           </div>
 
-          <form onSubmit={handleFormSubmit} className="space-y-6">
+          <form onSubmit={handleFormSubmit} className="space-y-4">
             {/* Linha 1: Título Resumido e Categoria */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-[10px] font-semibold text-slate-505 text-slate-500 dark:text-slate-405 dark:text-slate-400 uppercase tracking-wider mb-2">
-                  1. Título do Problema (Resumo)
+                <label className="block text-[9px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">
+                  1. Título do Chamado
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: Erro ao processar fatura do cartão"
+                  placeholder="Ex: Erro de login no sistema"
                   value={subject}
                   onChange={(e) => {
                     setSubject(e.target.value);
                     setError('');
                   }}
-                  className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-900 border border-slate-202 border-slate-200 dark:border-slate-808 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-600 transition-colors"
+                  className="w-full px-3 py-2 text-xs bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded focus:outline-none focus:border-zinc-450 dark:focus:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 dark:placeholder-zinc-600 transition-colors"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-semibold text-slate-505 text-slate-500 dark:text-slate-405 dark:text-slate-400 uppercase tracking-wider mb-2">
-                  2. Categoria do Problema
+                <label className="block text-[9px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">
+                  2. Categoria
                 </label>
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-900 border border-slate-202 border-slate-200 dark:border-slate-808 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-200 cursor-pointer transition-colors"
+                  className="w-full px-3 py-2 text-xs bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-808 dark:border-zinc-800 rounded focus:outline-none focus:border-zinc-450 dark:focus:border-zinc-700 text-zinc-800 dark:text-zinc-200 cursor-pointer transition-colors"
                 >
-                  <option value="Dúvidas & Configurações" className="bg-white dark:bg-slate-950">Dúvidas & Configurações</option>
-                  <option value="Técnico (Hardware/Software)" className="bg-white dark:bg-slate-950">Técnico (Hardware/Software)</option>
-                  <option value="Financeiro & Cobrança" className="bg-white dark:bg-slate-950">Financeiro & Cobrança</option>
-                  <option value="Reclamações & Cancelamento" className="bg-white dark:bg-slate-950">Reclamações & Cancelamento</option>
+                  <option value="Dúvidas & Configurações" className="bg-white dark:bg-zinc-900">Dúvidas & Configurações</option>
+                  <option value="Técnico (Hardware/Software)" className="bg-white dark:bg-zinc-900">Técnico (Hardware/Software)</option>
+                  <option value="Financeiro & Cobrança" className="bg-white dark:bg-zinc-900">Financeiro & Cobrança</option>
+                  <option value="Reclamações & Cancelamento" className="bg-white dark:bg-zinc-900">Reclamações & Cancelamento</option>
                 </select>
               </div>
             </div>
 
             {/* Linha 2: Canal Preferencial */}
             <div>
-              <label className="block text-[10px] font-semibold text-slate-505 text-slate-500 dark:text-slate-405 dark:text-slate-400 uppercase tracking-wider mb-2">
+              <label className="block text-[9px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">
                 3. Canal Preferencial
               </label>
-              <div className="flex gap-2 max-w-md">
+              <div className="flex gap-2 max-w-xs">
                 <button
                   type="button"
                   onClick={() => setChannel('WhatsApp')}
-                  className={`flex-1 py-2.5 rounded-xl border text-center transition-all cursor-pointer font-bold text-xs ${
+                  className={`flex-1 py-1 px-3 rounded border text-[10px] font-medium transition-colors cursor-pointer ${
                     channel === 'WhatsApp'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
-                      : 'bg-slate-50/50 dark:bg-slate-900/30 border-slate-202 border-slate-200 dark:border-slate-900 text-slate-500 dark:text-slate-400 hover:border-slate-302 dark:hover:border-slate-808'
+                      ? 'bg-zinc-900 border-zinc-900 text-white dark:bg-zinc-100 dark:border-zinc-100 dark:text-zinc-900'
+                      : 'bg-white dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:border-zinc-300 dark:hover:border-zinc-700'
                   }`}
                 >
                   WhatsApp
@@ -118,10 +113,10 @@ export function ClientCreatePage() {
                 <button
                   type="button"
                   onClick={() => setChannel('Webchat')}
-                  className={`flex-1 py-2.5 rounded-xl border text-center transition-all cursor-pointer font-bold text-xs ${
+                  className={`flex-1 py-1 px-3 rounded border text-[10px] font-medium transition-colors cursor-pointer ${
                     channel === 'Webchat'
-                      ? 'bg-sky-50 dark:bg-sky-950/20 border-sky-200 dark:border-sky-500/40 text-sky-650 text-sky-600 dark:text-sky-400'
-                      : 'bg-slate-50/50 dark:bg-slate-900/30 border-slate-202 border-slate-200 dark:border-slate-900 hover:border-slate-302 dark:hover:border-slate-808 text-slate-505 text-slate-500 dark:text-slate-400'
+                      ? 'bg-zinc-900 border-zinc-900 text-white dark:bg-zinc-100 dark:border-zinc-100 dark:text-zinc-900'
+                      : 'bg-white dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:border-zinc-300 dark:hover:border-zinc-700'
                   }`}
                 >
                   Webchat
@@ -131,35 +126,30 @@ export function ClientCreatePage() {
 
             {/* Linha 3: Descrição Detalhada */}
             <div>
-              <label className="block text-[10px] font-semibold text-slate-505 text-slate-500 dark:text-slate-405 dark:text-slate-400 uppercase tracking-wider mb-2">
-                4. Descrição Detalhada do Caso (Explique o que aconteceu)
+              <label className="block text-[9px] font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">
+                4. Relato Completo (O que aconteceu?)
               </label>
               <textarea
-                rows={5}
-                placeholder="Por favor, relate em detalhes o ocorrido para analisarmos sua solicitação com o motor de triagem inteligente..."
+                rows={4}
+                placeholder="Descreva em detalhes o ocorrido..."
                 value={description}
                 onChange={(e) => {
                   setDescription(e.target.value);
                   setError('');
                 }}
-                className="w-full px-4 py-3 text-sm bg-white dark:bg-slate-900 border border-slate-202 border-slate-200 dark:border-slate-888 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-600 resize-none transition-colors"
+                className="w-full px-3 py-2 text-xs bg-white dark:bg-zinc-955 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded focus:outline-none focus:border-zinc-450 dark:focus:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 dark:placeholder-zinc-600 resize-none transition-colors"
               />
 
-              {/* Alerta de Urgência dinâmico reativo */}
+              {/* Alerta de Urgência dinâmico reativo - Simplificado sem piscar/vermelho */}
               {hasStressKeyword && (
-                <div className="mt-2.5 p-3.5 bg-red-950/20 border border-red-900/30 text-red-400 rounded-2xl text-xs flex items-start gap-2.5 animate-pulse-slow">
-                  <AlertTriangle className="w-5 h-5 shrink-0 text-red-400" />
-                  <div>
-                    <strong className="block text-red-300">⚠️ Triagem IA Prioritária Ativada!</strong>
-                    Detectamos termos altamente urgentes em seu relato. Sua solicitação será encaminhada com prioridade crítica no topo da fila dos especialistas.
-                  </div>
+                <div className="mt-2 text-[10px] text-zinc-500 dark:text-zinc-450 italic">
+                  * Note: Foram detectados termos prioritários em seu relato. A triagem automática da IA classificará este ticket como alta urgência na fila.
                 </div>
               )}
             </div>
 
             {error && (
-              <div className="p-3 bg-red-950/20 border border-red-900/30 text-red-400 rounded-xl text-xs flex items-center gap-2">
-                <AlertOctagon className="w-4 h-4 shrink-0" />
+              <div className="p-2 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 text-red-655 text-red-650 dark:text-red-400 rounded text-[10px]">
                 <span>{error}</span>
               </div>
             )}
@@ -168,9 +158,9 @@ export function ClientCreatePage() {
             <button
               type="submit"
               disabled={submitting || !isConnected}
-              className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-md hover:shadow-indigo-950 text-sm"
+              className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:opacity-50 text-white font-semibold rounded transition-colors cursor-pointer text-xs border-0"
             >
-              {submitting ? 'Enviando Solicitação...' : 'Criar Solicitação e Entrar no Atendimento'}
+              {submitting ? 'Enviando...' : 'Iniciar chamado'}
             </button>
           </form>
         </div>

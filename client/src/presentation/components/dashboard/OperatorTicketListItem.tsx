@@ -12,7 +12,6 @@ export const OperatorTicketListItem: React.FC<OperatorTicketListItemProps> = ({
   isSelected,
   onSelect
 }) => {
-  // Extract last message snippet or fallback to subject
   const lastMsg = ticket.messages[ticket.messages.length - 1];
   const lastTextSnippet = lastMsg
     ? (lastMsg.sender === 'agent' ? 'Você: ' : '') + lastMsg.text
@@ -22,81 +21,63 @@ export const OperatorTicketListItem: React.FC<OperatorTicketListItemProps> = ({
     ? new Date(lastMsg.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     : '';
 
-  const getPriorityBadge = (priority: string) => {
+  const getPriorityText = (priority: string) => {
     switch (priority) {
-      case 'critical':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-50 dark:bg-red-950/80 text-red-650 text-red-650 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/80 animate-pulse-slow">
-            Crítico
-          </span>
-        );
-      case 'high':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-705 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50">
-            Alto
-          </span>
-        );
-      case 'medium':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-650 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/30">
-            Médio
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-605 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700/50">
-            Baixo
-          </span>
-        );
+      case 'critical': return '[Crítico]';
+      case 'high': return '[Alto]';
+      case 'medium': return '[Médio]';
+      default: return '[Baixo]';
+    }
+  };
+
+  const getPriorityColorClass = (priority: string) => {
+    if (ticket.status === 'resolved') return 'text-zinc-400 dark:text-zinc-550';
+    switch (priority) {
+      case 'critical': return 'text-red-500 font-bold';
+      case 'high': return 'text-amber-500 font-semibold';
+      case 'medium': return 'text-zinc-600 dark:text-zinc-300';
+      default: return 'text-zinc-400 dark:text-zinc-500';
     }
   };
 
   return (
     <button
       onClick={() => onSelect(ticket.id)}
-      className={`w-full text-left p-3.5 border rounded-xl flex flex-col gap-1.5 relative transition-all cursor-pointer ${
+      className={`w-full text-left p-3 border rounded transition-colors cursor-pointer flex flex-col gap-1 ${
         isSelected
-          ? 'bg-indigo-50 dark:bg-indigo-950/20 border-indigo-400 dark:border-indigo-500/80 shadow-md shadow-indigo-100 dark:shadow-indigo-950/20'
-          : 'bg-white/80 dark:bg-slate-900/20 border-slate-200 dark:border-slate-900 hover:border-slate-300 dark:hover:border-slate-800 hover:bg-white dark:hover:bg-slate-900/40'
+          ? 'bg-zinc-100 dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700'
+          : 'bg-white dark:bg-zinc-950 border-zinc-200 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900/50'
       }`}
     >
-      {/* Urgência Crítica */}
-      {ticket.priority === 'critical' && ticket.status !== 'resolved' && (
-        <div className="absolute left-0 top-3 bottom-3 w-1 bg-red-500 rounded-r-md animate-pulse"></div>
-      )}
-
-      <div className="flex items-center justify-between">
-        <span className="font-bold text-xs text-slate-800 dark:text-slate-200 truncate pr-2 max-w-[180px]">
-          {ticket.customerName}
+      <div className="flex items-center justify-between text-[10px] text-zinc-500 dark:text-zinc-400">
+        <span className="font-mono">
+          #{ticket.id.slice(0, 8).toUpperCase()}
         </span>
-        <span className="text-[9px] text-slate-500 font-mono shrink-0">
+        <span>
           {lastTime || new Date(ticket.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
 
-      <p className="text-[11px] text-slate-605 text-slate-600 dark:text-slate-405 dark:text-slate-400 font-normal line-clamp-1 italic shrink-0">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-bold text-xs text-zinc-900 dark:text-zinc-100 truncate flex-1">
+          {ticket.customerName}
+        </span>
+        <span className={`text-[9px] font-mono uppercase shrink-0 ${getPriorityColorClass(ticket.priority)}`}>
+          {getPriorityText(ticket.priority)}
+        </span>
+      </div>
+
+      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-1 italic">
         "{lastText}"
       </p>
 
-      <div className="flex items-center justify-between gap-1 mt-1 shrink-0">
-        <div className="flex items-center space-x-1.5">
-          {getPriorityBadge(ticket.priority)}
-          <span className="text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-505 text-slate-500 dark:text-slate-405 dark:text-slate-400 border border-slate-200 dark:border-slate-700/50 px-1.5 py-0.5 rounded font-medium">
-            {ticket.channel}
-          </span>
-          <span
-            className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold ${
-              ticket.status === 'in_progress'
-                ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-650 text-indigo-600 dark:text-indigo-400 border-indigo-100 dark:border-indigo-900/30'
-                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-650 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30'
-            }`}
-          >
-            {ticket.status === 'in_progress' ? 'Em Progresso' : 'Resolvido'}
-          </span>
+      <div className="flex items-center justify-between text-[9px] text-zinc-400 dark:text-zinc-500 border-t border-zinc-100 dark:border-zinc-900/40 pt-1 mt-0.5">
+        <div className="flex gap-2">
+          <span>{ticket.channel}</span>
+          <span>•</span>
+          <span>{ticket.status === 'in_progress' ? 'Em atendimento' : 'Resolvido'}</span>
         </div>
-        <span className="text-[9px] font-bold text-slate-505 text-slate-500">
-          Estresse: {ticket.stressLevel}/5
-        </span>
+        <span>Estresse: {ticket.stressLevel}/5</span>
       </div>
     </button>
   );
