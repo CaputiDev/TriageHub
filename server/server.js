@@ -573,17 +573,19 @@ wss.on('connection', async (ws) => {
               console.log(`🛠️ Atendimentos órfãos encaminhados para ${userName} como pendentes de aceitação...`);
 
               for (const ticket of pendingTickets) {
-                // 1. Atualiza o atendente do ticket no SQLite para pendente de aceitação
                 await db.run(
                   "UPDATE tickets SET operatorId = ?, status = 'pending_acceptance' WHERE id = ?",
                   [userId, ticket.id]
                 );
 
-                // 2. Recarrega o ticket atualizado e transmite
                 const updatedTicket = await getTicketById(ticket.id);
                 sendTicketUpdate(updatedTicket);
               }
             }
+
+            // Envia estado atualizado de tickets para o atendente reconectado
+            const agentTickets = await getFullTickets(ws.user);
+            ws.send(JSON.stringify({ type: 'INITIAL_STATE', data: agentTickets }));
           }
           break;
         }
@@ -593,92 +595,84 @@ wss.on('connection', async (ws) => {
           const { customerEmail, channel, category, subject, description } = message.data;
 
           if (!customerEmail || !channel || !category || !subject || !description) {
+            ws.send(JSON.stringify({ type: 'TICKET_ERROR', error: 'Dados incompletos para criar o ticket.' }));
             console.warn('⚠️ Payload incompleto para CREATE_TICKET');
             return;
           }
 
           if (!ws.user) {
+            ws.send(JSON.stringify({ type: 'TICKET_ERROR', error: 'Sessão não autenticada. Faça login novamente.' }));
             console.warn('⚠️ Usuário não autenticado no WebSocket');
             return;
           }
 
-          const customerId = ws.user.id;
-          const customerName = ws.user.name;
-          const ticketId = randomUUID();
-          const createdAt = new Date().toISOString();
+          try {
+            const customerId = ws.user.id;
+            const customerName = ws.user.name;
+            const ticketId = randomUUID();
+            const createdAt = new Date().toISOString();
 
-          // 1. Executa Triagem de Estresse
-          const { priority, stressLevel, detectedKeywords } = realizarTriagem(description);
+            // 1. Executa Triagem de Estresse
+            const { priority, stressLevel, detectedKeywords } = realizarTriagem(description);
 
-          // 2. Busca atendentes online
-          const activeOperators = getActiveOperators();
-          let operatorId = null;
-          let operatorName = 'Aguardando Atendente';
-          let hasAgent = activeOperators.length > 0;
+            // 2. Busca atendentes online
+            const activeOperators = getActiveOperators();
+            let operatorId = null;
+            let operatorName = 'Aguardando Atendente';
+            let hasAgent = activeOperators.length > 0;
 
-          if (hasAgent) {
-            const selectedAgent = activeOperators[Math.floor(Math.random() * activeOperators.length)];
-            operatorId = selectedAgent.id;
-            operatorName = selectedAgent.name;
-          }
+            if (hasAgent) {
+              const selectedAgent = activeOperators[Math.floor(Math.random() * activeOperators.length)];
+              operatorId = selectedAgent.id;
+              operatorName = selectedAgent.name;
+            }
 
-          // 3. Insere Ticket no SQLite usando IDs (com status 'pending_acceptance' se houver operador)
-          const initialStatus = hasAgent ? 'pending_acceptance' : 'open';
-          await db.run(
-            `INSERT INTO tickets (id, customerId, channel, category, subject, description, priority, status, stressLevel, operatorId, createdAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [ticketId, customerId, channel, category, subject, description, priority, initialStatus, stressLevel, operatorId, createdAt]
-          );
+            // 3. Insere Ticket no SQLite
+            const initialStatus = hasAgent ? 'pending_acceptance' : 'open';
+            await db.run(
+              `INSERT INTO tickets (id, customerId, channel, category, subject, description, priority, status, stressLevel, operatorId, createdAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [ticketId, customerId, channel, category, subject, description, priority, initialStatus, stressLevel, operatorId, createdAt]
+            );
 
-          // 4. Cria Mensagem Inicial do Cliente (usando o resumo do assunto)
-          const clientMsgId = randomUUID();
-          await db.run(
-            `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
-            [clientMsgId, ticketId, customerId, subject, createdAt]
-          );
+            // 4. Cria Mensagem Inicial do Cliente
+            const clientMsgId = randomUUID();
+            await db.run(
+              `INSERT INTO messages (id, ticketId, senderId, text, timestamp) VALUES (?, ?, ?, ?, ?)`,
+              [clientMsgId, ticketId, customerId, subject, createdAt]
+            );
 
-          // 5. Registra log do sistema sobre a fila de espera (sem operador online)
-          if (!hasAgent) {
-            const logId = randomUUID();
-            const logTimestamp = new Date(Date.now() + 1000).toISOString();
-            const logText = `Ticket criado e adicionado à fila de espera. Nenhum especialista online no momento — o primeiro técnico disponível assumirá o atendimento automaticamente.`;
-
+            // 5. Registra log do sistema
+            const logText = hasAgent
+              ? `Ticket criado e encaminhado para o especialista ${operatorName} para aceite.`
+              : `Ticket criado e adicionado à fila de espera. Nenhum especialista online no momento.`;
             await db.run(
               `INSERT INTO ticket_logs (id, ticketId, text, timestamp) VALUES (?, ?, ?, ?)`,
-              [logId, ticketId, logText, logTimestamp]
+              [randomUUID(), ticketId, logText, new Date(Date.now() + 1000).toISOString()]
             );
-          } else {
-            const logId = randomUUID();
-            const logTimestamp = new Date(Date.now() + 1000).toISOString();
-            const logText = `Ticket criado e encaminhado para o especialista ${operatorName} para aceite.`;
 
-            await db.run(
-              `INSERT INTO ticket_logs (id, ticketId, text, timestamp) VALUES (?, ?, ?, ?)`,
-              [logId, ticketId, logText, logTimestamp]
-            );
+            // 6. Carrega o ticket criado com suas mensagens
+            const newTicket = await getTicketById(ticketId);
+
+            console.log(`📥 [Ticket Criado] De: ${customerName} | Prioridade: ${priority.toUpperCase()} | Canal: ${channel} | Status: ${initialStatus}`);
+
+            // 7. Envia confirmação para o cliente
+            ws.send(JSON.stringify({ type: 'TICKET_CREATED', data: newTicket }));
+
+            // 8. Transmite a atualização para todos os agentes e para o cliente
+            sendTicketUpdate(newTicket, {
+              id: randomUUID(),
+              timestamp: createdAt,
+              customerName,
+              subject,
+              detectedKeywords,
+              priority,
+              stressLevel
+            });
+          } catch (err) {
+            console.error('❌ Erro ao criar ticket:', err);
+            ws.send(JSON.stringify({ type: 'TICKET_ERROR', error: 'Erro interno ao processar sua solicitação. Tente novamente.' }));
           }
-
-          // 6. Carrega o ticket criado com suas mensagens
-          const newTicket = await getTicketById(ticketId);
-
-          console.log(`📥 [Ticket Criado] De: ${customerName} | Prioridade: ${priority.toUpperCase()} | Canal: ${channel} | Status: ${initialStatus}`);
-
-          // Envia resposta direta de confirmação de criação para o cliente específico
-          ws.send(JSON.stringify({
-            type: 'TICKET_CREATED',
-            data: newTicket
-          }));
-
-          // Transmite a atualização de forma segura para todos os agentes e para o cliente
-          sendTicketUpdate(newTicket, {
-            id: randomUUID(),
-            timestamp: createdAt,
-            customerName,
-            subject,
-            detectedKeywords,
-            priority,
-            stressLevel
-          });
           break;
         }
 

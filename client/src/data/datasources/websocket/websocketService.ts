@@ -103,8 +103,8 @@ class WebSocketService {
 
               const shortId = ticket.id.slice(0, 8).toUpperCase();
               const resolve = this.pendingResolves.get(`GET_TICKET_${ticket.id}`) ||
-                              this.pendingResolves.get(`GET_TICKET_${shortId}`) ||
-                              this.pendingResolves.get(`GET_TICKET_${shortId.toLowerCase()}`);
+                this.pendingResolves.get(`GET_TICKET_${shortId}`) ||
+                this.pendingResolves.get(`GET_TICKET_${shortId.toLowerCase()}`);
 
               if (resolve) {
                 resolve(ticket);
@@ -138,9 +138,20 @@ class WebSocketService {
               const ticketId = message.ticketId || '';
               const shortId = ticketId.length === 36 ? ticketId.slice(0, 8).toUpperCase() : ticketId.toUpperCase();
 
+              // Rejeita criação de ticket pendente (sem ticketId = erro no CREATE_TICKET)
+              if (!message.ticketId) {
+                const createReject = this.pendingRejects.get('CREATE_TICKET');
+                if (createReject) {
+                  createReject(new Error(message.error));
+                  this.pendingResolves.delete('CREATE_TICKET');
+                  this.pendingRejects.delete('CREATE_TICKET');
+                }
+                break;
+              }
+
               const reject = this.pendingRejects.get(`GET_TICKET_${ticketId}`) ||
-                             this.pendingRejects.get(`GET_TICKET_${shortId}`) ||
-                             this.pendingRejects.get(`GET_TICKET_${shortId.toLowerCase()}`);
+                this.pendingRejects.get(`GET_TICKET_${shortId}`) ||
+                this.pendingRejects.get(`GET_TICKET_${shortId.toLowerCase()}`);
 
               if (reject) {
                 reject(new Error(message.error));
@@ -247,6 +258,7 @@ class WebSocketService {
     return new Promise((resolve, reject) => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.pendingResolves.set('CREATE_TICKET', resolve);
+        this.pendingRejects.set('CREATE_TICKET', reject);
 
         const payload = JSON.stringify({
           type: 'CREATE_TICKET',
