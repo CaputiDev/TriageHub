@@ -4,7 +4,7 @@ import { ChatFeed } from '../../components/chat/ChatFeed';
 import { ChatInput } from '../../components/chat/ChatInput';
 import { ThemeToggle } from '../../components/common/ThemeToggle';
 import logoUrl from '../../../assets/logo.png';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, MoreHorizontal } from 'lucide-react';
 
 export function ClientChatPage() {
   const {
@@ -36,7 +36,6 @@ export function ClientChatPage() {
       </div>
     );
   }
-
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 flex flex-col font-sans transition-colors duration-200">
       {/* Header do Chat */}
@@ -46,124 +45,98 @@ export function ClientChatPage() {
             <img src={logoUrl} alt="TriageHub" className="w-6 h-6 object-contain" />
           </div>
           <div>
-            <h2 className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
-              Atendimento em tempo real
+            <h2 className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5 animate-none">
+              {ticket.operatorName ? `Atendente: ${ticket.operatorName}` : 'Procurando atendente...'}
               <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
             </h2>
-            <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
-              Especialista: {ticket.operatorName || 'Aguardando...'}
-            </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             onClick={() => setMobileInfoOpen(true)}
-            className="md:hidden p-1.5 rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 transition-colors cursor-pointer text-xs"
+            className="p-1.5 rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors cursor-pointer text-xs flex items-center justify-center"
+            title="Ver detalhes"
           >
-            Info
+            <MoreHorizontal className="w-4 h-4" />
           </button>
           <ThemeToggle />
           <button
             onClick={handleLeave}
-            className="text-xs text-zinc-500 hover:text-red-500 dark:hover:text-red-400 transition-colors flex items-center gap-1 font-medium cursor-pointer bg-transparent border-0"
+            className="text-xs text-zinc-500 hover:text-red-500 dark:hover:text-red-404 transition-colors flex items-center gap-1 font-medium cursor-pointer bg-transparent border-0"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Voltar ao Portal
           </button>
         </div>
       </header>
 
-      {/* Mobile Bottom Sheet */}
+      {/* Overlay de Detalhes do Chamado */}
       {mobileInfoOpen && (
-        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setMobileInfoOpen(false)}>
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 dark:bg-black/40 backdrop-blur-sm" onClick={() => setMobileInfoOpen(false)}>
           <div
-            className="relative bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 p-5 space-y-4 max-h-[85vh] overflow-y-auto"
+            className="relative w-full max-w-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded p-6 space-y-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-wider">Detalhes do chamado</h3>
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-3">
+              <h3 className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-wider">Detalhes do Chamado</h3>
               <button
                 onClick={() => setMobileInfoOpen(false)}
-                className="text-xs text-zinc-400 hover:text-zinc-650 cursor-pointer bg-transparent border-0"
+                className="text-xs text-zinc-405 hover:text-zinc-650 cursor-pointer bg-transparent border-0 font-bold"
               >
                 Fechar
               </button>
             </div>
 
-            <div className="space-y-2 text-[11px] text-zinc-600 dark:text-zinc-300">
-              <div><strong>Protocolo:</strong> {ticket.id.slice(0, 8).toUpperCase()}</div>
-              <div><strong>Status:</strong> {ticket.status}</div>
-              <div><strong>Canal:</strong> {ticket.channel}</div>
-              <div><strong>Categoria:</strong> {ticket.category || 'Não Informada'}</div>
-              <div><strong>Título:</strong> {ticket.subject}</div>
-              <div className="border-t border-zinc-100 dark:border-zinc-800 pt-2 mt-2">
-                <strong>Relato Completo:</strong>
-                <p className="mt-1 text-zinc-500 dark:text-zinc-400 italic">"{ticket.description}"</p>
+            <div className="space-y-3 text-xs text-zinc-650 dark:text-zinc-300">
+              <div>
+                <span className="text-zinc-400 block text-[10px] uppercase">Protocolo</span>
+                <span className="font-mono">#{ticket.id.slice(0, 8).toUpperCase()}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-zinc-400 block text-[10px] uppercase">Status</span>
+                  <span className="capitalize">{ticket.status.replace('_', ' ')}</span>
+                </div>
+                <div>
+                  <span className="text-zinc-400 block text-[10px] uppercase">Canal</span>
+                  <span>{ticket.channel}</span>
+                </div>
+              </div>
+              <div>
+                <span className="text-zinc-400 block text-[10px] uppercase">Categoria</span>
+                <span>{ticket.category || 'Não Informada'}</span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block text-[10px] uppercase">Assunto</span>
+                <span className="font-bold">{ticket.subject}</span>
+              </div>
+              <div className="border-t border-zinc-100 dark:border-zinc-800 pt-3">
+                <span className="text-zinc-400 block text-[10px] uppercase mb-1">Relato Completo</span>
+                <p className="text-zinc-550 dark:text-zinc-400 italic bg-zinc-50 dark:bg-zinc-950 p-3 rounded border border-zinc-100 dark:border-zinc-900 leading-relaxed">
+                  "{ticket.description || ticket.subject}"
+                </p>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Grid Principal */}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-4 min-h-0">
-        {/* Painel Lateral */}
-        <aside className="md:col-span-1 border-r border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-950 p-5 space-y-5 hidden md:block overflow-y-auto">
-          <div className="space-y-4 text-xs">
-            <h3 className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-100 dark:border-zinc-900 pb-1.5">Dados da Solicitação</h3>
-            
-            <div className="space-y-3">
-              <div>
-                <span className="text-[10px] text-zinc-400 block">Categoria:</span>
-                <span className="font-semibold text-zinc-800 dark:text-zinc-200">{ticket.category || 'Não Informada'}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-zinc-400 block">Assunto:</span>
-                <span className="font-semibold text-zinc-800 dark:text-zinc-200">{ticket.subject}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-zinc-400 block">Relato:</span>
-                <p className="mt-1 text-zinc-500 dark:text-zinc-400 italic leading-relaxed">
-                  "{ticket.description || ticket.subject}"
-                </p>
-              </div>
-            </div>
+      {/* Painel do Chat (Ocupa 100% de largura) */}
+      <main className="flex-1 flex flex-col bg-white dark:bg-zinc-950/20 min-h-0">
+        <ChatFeed
+          messages={ticket.messages}
+          currentUserName={currentUser.name}
+          currentUserRole="client"
+        />
 
-            <div className="space-y-2 border-t border-zinc-100 dark:border-zinc-900 pt-4 text-[10px] text-zinc-500">
-              <div className="flex justify-between">
-                <span>Protocolo:</span>
-                <span className="font-mono">{ticket.id.slice(0, 8).toUpperCase()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Canal:</span>
-                <span>{ticket.channel}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Status:</span>
-                <span className="capitalize">{ticket.status.replace('_', ' ')}</span>
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        {/* Painel do Chat */}
-        <main className="md:col-span-3 flex flex-col bg-white dark:bg-zinc-950/20 min-h-0">
-          <ChatFeed
-            messages={ticket.messages}
-            currentUserName={currentUser.name}
-            currentUserRole="client"
-          />
-
-          <ChatInput
-            status={ticket.status}
-            operatorName={ticket.operatorName}
-            customerName={ticket.customerName}
-            currentUserRole="client"
-            onSend={handleSend}
-          />
-        </main>
-      </div>
+        <ChatInput
+          status={ticket.status}
+          operatorName={ticket.operatorName}
+          customerName={ticket.customerName}
+          currentUserRole="client"
+          onSend={handleSend}
+        />
+      </main>
     </div>
   );
 }
