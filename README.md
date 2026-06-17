@@ -1,6 +1,6 @@
 # 🚀 TriageHub - Central de Triagem Inteligente em Tempo Real
 
-O **TriageHub** é uma solução de suporte ao cliente de alto desempenho em tempo real, operando com comunicação bidirecional persistente via WebSockets e armazenamento relacional em banco de dados SQLite. 
+O **TriageHub** é uma solução de suporte ao cliente de alto desempenho em tempo real, operando com comunicação bidirecional persistente via WebSockets e armazenamento relacional em banco de dados SQLite.
 
 O sistema integra um **motor de triagem de IA** que avalia o nível de estresse do cliente e a gravidade dos relatos em tempo real para priorizar a fila de atendimento dos especialistas. A segurança é assegurada por meio de criptografia forte utilizando hashes **Argon2** no backend.
 
@@ -8,46 +8,30 @@ O sistema integra um **motor de triagem de IA** que avalia o nível de estresse 
 
 ## 🏗️ Arquitetura do Projeto
 
-O projeto é dividido em duas partes principais:
-* `/server`: Servidor WebSocket desenvolvido em Node.js com SQLite e hashing Argon2.
-* `/client`: Portal web desenvolvido em React + TypeScript, recentemente refatorado utilizando os princípios da **Clean Architecture** (Arquitetura Limpa).
-
-### Clean Architecture no Frontend (`/client`)
-
-A pasta `client/src` está estruturada em camadas bem definidas e desacopladas, facilitando a escalabilidade, manutenibilidade e testes:
+Ambas as partes do projeto foram refatoradas seguindo as diretrizes da **Clean Architecture** (Arquitetura Limpa), permitindo total desacoplamento entre regras de negócio, infraestrutura de rede, banco de dados e componentes de visualização.
 
 ```text
-client/src/
-├── core/                       # 1. CAMADA DOMAIN (Regras de Negócio e Entidades)
-│   └── entities/
-│       ├── user.ts             # Entidades/Estados do Usuário logado
-│       ├── ticket.ts           # Interfaces de Ticket e Mensagem
-│       └── triage.ts           # Definições de log de triagem de IA
-├── data/                       # 2. CAMADA DATA (Infraestrutura, Conexões e Gateways)
-│   ├── datasources/
-│   │   └── websocket/
-│   │       └── websocketService.ts # Gerencia o socket nativo e concorrência de Promises
-│   └── repositories/
-│       └── ticketRepository.ts # Implementação de repositório para acesso aos dados
-├── store/                      # 3. CAMADA STATE (Estado global reativo)
-│   └── useTicketStore.ts       # Estado Zustand contendo tickets ordenados por regras de negócio
-└── presentation/               # 4. CAMADA PRESENTATION (Componentes Visuais, Views e Controladores)
-    ├── components/             # Componentes Visuais Reutilizáveis (Dumb Components)
-    │   ├── common/             # Componentes genéricos como ThemeToggle
-    │   ├── chat/               # Visualizações do Feed e Inputs de chat
-    │   └── dashboard/          # Cards de fila, estatísticas operacionais e logs
-    ├── controllers/            # Controladores / View-Models (Hooks com estado local e regras de tela)
-    │   ├── useLoginController.ts
-    │   ├── useClientDashboardController.ts
-    │   ├── useClientCreateController.ts
-    │   ├── useClientChatController.ts
-    │   ├── useOperatorDashboardController.ts
-    │   └── useOperatorChatController.ts
-    └── pages/                  # Views / Páginas Declarativas (Layouts e Tailwind CSS)
-        ├── LoginPage.tsx
-        ├── client/             # Páginas exclusivas do Cliente (Dashboard, Abertura e Chat)
-        └── operator/           # Páginas exclusivas do Operador (Dashboard e Chat)
+TriageHub/
+├── client/                     # Portal web desenvolvido em React 19 + TypeScript
+│   ├── src/
+│   │   ├── core/               # Camada Domain (Entidades de Negócio)
+│   │   ├── data/               # Camada Data (WebSocket datasource e Repositório)
+│   │   ├── store/              # Camada State (Estado global Zustand)
+│   │   └── presentation/       # Camada Presentation (Componentes, Controllers e Pages)
+│   └── structure.md            # Documentação detalhada da estrutura e fluxo do cliente
+│
+└── server/                     # Servidor WebSocket desenvolvido em Node.js com SQLite
+    ├── src/
+    │   ├── core/               # Camada Domain (Usecases, Entidades e Contratos)
+    │   ├── infrastructure/     # Camada Infrastructure (Conexão DB, Repositórios, Segurança)
+    │   └── presentation/       # Camada Presentation (Controllers de entrada WS e Server)
+    └── structure.md            # Documentação detalhada da estrutura e APIs do servidor
 ```
+
+> [!NOTE]
+> Para obter detalhes aprofundados sobre a organização de arquivos, diagramas de sequência de fluxos de login, chamados e chat, e o funcionamento das camadas de software:
+> * Leia a **[Documentação do Frontend (Cliente)](file:///d:/git_clones/TriageHub/client/structure.md)**
+> * Leia a **[Documentação do Backend (Servidor)](file:///d:/git_clones/TriageHub/server/structure.md)**
 
 ---
 
