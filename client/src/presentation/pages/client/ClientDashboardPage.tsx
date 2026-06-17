@@ -37,7 +37,7 @@ export function ClientDashboardPage() {
       />
 
       {/* Main Workspace */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-6 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
         {/* Simple text greeting instead of giant banner */}
         <section className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4 border-b border-border-subtle">
           <div className="space-y-0.5">

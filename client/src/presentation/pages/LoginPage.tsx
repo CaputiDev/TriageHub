@@ -32,7 +32,7 @@ export function LoginPage() {
 
   return (
     <div className="min-h-screen bg-bg-base text-text-main flex items-center justify-center p-6 font-sans transition-colors duration-200">
-      <Card className="w-full max-w-sm">
+      <Card className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-6">
           <img src={logoUrl} alt="TriageHub" className="w-12 h-12 object-contain rounded-full mx-auto mb-2 opacity-90" />

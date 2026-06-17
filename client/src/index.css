@@ -57,6 +57,7 @@
 
 html {
   scroll-behavior: smooth;
+  font-size: 112.5%; /* Aumenta a proporção global de todo o site (1rem = 18px) */
 }
 
 /* Scrollbar rules */

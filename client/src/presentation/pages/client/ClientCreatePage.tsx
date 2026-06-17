@@ -40,7 +40,7 @@ export function ClientCreatePage() {
       />
 
       <div className="flex-1 flex items-center justify-center p-6">
-        <Card className="w-full max-w-lg space-y-4">
+        <Card className="w-full max-w-3xl space-y-4">
           <div>
             <h2 className="text-base font-bold text-text-main">Abertura de Chamado</h2>
             <p className="text-[11px] text-text-muted">Explique detalhadamente o seu problema técnico ou financeiro.</p>

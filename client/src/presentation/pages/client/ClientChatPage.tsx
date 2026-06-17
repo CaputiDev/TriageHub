@@ -98,21 +98,23 @@ export function ClientChatPage() {
         </div>
       )}
 
-      {/* Painel do Chat (Ocupa 100% de largura) */}
-      <main className="flex-1 flex flex-col bg-bg-panel min-h-0">
-        <ChatFeed
-          messages={ticket.messages}
-          currentUserName={currentUser.name}
-          currentUserRole="client"
-        />
+      {/* Painel do Chat (Ocupa 100% de largura, com max-width centralizado no desktop) */}
+      <main className="flex-1 flex flex-col bg-bg-panel min-h-0 border-t border-border-subtle">
+        <div className="flex-1 flex flex-col max-w-6xl w-full mx-auto bg-bg-panel md:border-x md:border-border-subtle">
+          <ChatFeed
+            messages={ticket.messages}
+            currentUserName={currentUser.name}
+            currentUserRole="client"
+          />
 
-        <ChatInput
-          status={ticket.status}
-          operatorName={ticket.operatorName}
-          customerName={ticket.customerName}
-          currentUserRole="client"
-          onSend={handleSend}
-        />
+          <ChatInput
+            status={ticket.status}
+            operatorName={ticket.operatorName}
+            customerName={ticket.customerName}
+            currentUserRole="client"
+            onSend={handleSend}
+          />
+        </div>
       </main>
     </div>
   );
