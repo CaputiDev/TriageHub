@@ -1,16 +1,15 @@
 import { useTicketStore } from '../../../store/useTicketStore';
 import type { Ticket } from '../../../core/entities/ticket';
-import type { TriageLog } from '../../../core/entities/triage';
 import type { UserState } from '../../../core/entities/user';
-
-const WS_URL = 'ws://localhost:8080';
+import { handleMessage } from './messageHandlers';
+import { PendingRequests } from './pendingRequests';
+import { MAX_RECONNECT_ATTEMPTS, RECONNECT_DELAY_MS, WS_URL } from './websocketConfig';
 
 class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectTimeoutId: number | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private pendingResolves = new Map<string, (value: any) => void>();
-  private pendingRejects = new Map<string, (reason: Error) => void>();
+  private reconnectAttempts = 0;
+  private pendingRequests = new PendingRequests();
   private listeners: Set<(connected: boolean) => void> = new Set();
 
   public connect(): void {
@@ -26,14 +25,15 @@ class WebSocketService {
 
       ws.onopen = () => {
         console.log('✅ Conexão WebSocket estabelecida com sucesso!');
+        this.reconnectAttempts = 0;
         useTicketStore.getState().setConnected(true);
         this.notifyListeners(true);
+
         if (this.reconnectTimeoutId) {
           clearTimeout(this.reconnectTimeoutId);
           this.reconnectTimeoutId = null;
         }
 
-        // Se já houver um usuário logado, re-identifica-o
         const currentUser = useTicketStore.getState().currentUser;
         if (currentUser) {
           this.identify(currentUser.id, currentUser.name, currentUser.role, currentUser.email);
@@ -43,143 +43,7 @@ class WebSocketService {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          const store = useTicketStore.getState();
-
-          switch (message.type) {
-            case 'AUTH_SUCCESS': {
-              console.log('🔑 Autenticação efetuada com sucesso no backend:', message.data.name);
-              const { id, email, name, role, funcao, codigoIdentificacao } = message.data;
-
-              store.login(id, name, role, email, funcao, codigoIdentificacao);
-
-              const resolve = this.pendingResolves.get('AUTH');
-              if (resolve) {
-                resolve(message.data);
-                this.pendingResolves.delete('AUTH');
-                this.pendingRejects.delete('AUTH');
-              }
-              break;
-            }
-
-            case 'AUTH_ERROR': {
-              console.warn('❌ Falha na autenticação do socket:', message.error);
-
-              const reject = this.pendingRejects.get('AUTH');
-              if (reject) {
-                reject(new Error(message.error));
-                this.pendingResolves.delete('AUTH');
-                this.pendingRejects.delete('AUTH');
-              }
-              break;
-            }
-
-            case 'INITIAL_STATE':
-              console.log('📥 Sincronização inicial de tickets:', message.data.length, 'tickets');
-              store.setTickets(message.data as Ticket[]);
-              break;
-
-            case 'TICKET_CREATED': {
-              console.log('📥 Ticket criado recebido via WS:', message.data.id);
-              const ticket = message.data as Ticket;
-              store.addOrUpdateTicket(ticket);
-              store.setActiveTicketId(ticket.id);
-
-              const resolve = this.pendingResolves.get('CREATE_TICKET');
-              if (resolve) {
-                resolve(ticket);
-                this.pendingResolves.delete('CREATE_TICKET');
-              }
-              break;
-            }
-
-            case 'TICKET_UPDATE': {
-              console.log('📥 Sincronização ou atualização de ticket recebida:', message.data.id);
-              const ticket = message.data as Ticket;
-              store.addOrUpdateTicket(ticket);
-
-              if (message.triageLog) {
-                store.addTriageLog(message.triageLog as TriageLog);
-              }
-
-              const shortId = ticket.id.slice(0, 8).toUpperCase();
-              const resolve = this.pendingResolves.get(`GET_TICKET_${ticket.id}`) ||
-                this.pendingResolves.get(`GET_TICKET_${shortId}`) ||
-                this.pendingResolves.get(`GET_TICKET_${shortId.toLowerCase()}`);
-
-              if (resolve) {
-                resolve(ticket);
-                this.pendingResolves.delete(`GET_TICKET_${ticket.id}`);
-                this.pendingResolves.delete(`GET_TICKET_${shortId}`);
-                this.pendingResolves.delete(`GET_TICKET_${shortId.toLowerCase()}`);
-
-                this.pendingRejects.delete(`GET_TICKET_${ticket.id}`);
-                this.pendingRejects.delete(`GET_TICKET_${shortId}`);
-                this.pendingRejects.delete(`GET_TICKET_${shortId.toLowerCase()}`);
-              }
-
-              const acceptResolve = this.pendingResolves.get(`ACCEPT_${ticket.id}`);
-              if (acceptResolve) {
-                acceptResolve(ticket);
-                this.pendingResolves.delete(`ACCEPT_${ticket.id}`);
-                this.pendingRejects.delete(`ACCEPT_${ticket.id}`);
-              }
-
-              const rejectResolve = this.pendingResolves.get(`REJECT_${ticket.id}`);
-              if (rejectResolve) {
-                rejectResolve(ticket);
-                this.pendingResolves.delete(`REJECT_${ticket.id}`);
-                this.pendingRejects.delete(`REJECT_${ticket.id}`);
-              }
-              break;
-            }
-
-            case 'TICKET_ERROR': {
-              console.warn('❌ Erro de ticket recebido do servidor:', message.error);
-              const ticketId = message.ticketId || '';
-              const shortId = ticketId.length === 36 ? ticketId.slice(0, 8).toUpperCase() : ticketId.toUpperCase();
-
-              // Rejeita criação de ticket pendente (sem ticketId = erro no CREATE_TICKET)
-              if (!message.ticketId) {
-                const createReject = this.pendingRejects.get('CREATE_TICKET');
-                if (createReject) {
-                  createReject(new Error(message.error));
-                  this.pendingResolves.delete('CREATE_TICKET');
-                  this.pendingRejects.delete('CREATE_TICKET');
-                }
-                break;
-              }
-
-              const reject = this.pendingRejects.get(`GET_TICKET_${ticketId}`) ||
-                this.pendingRejects.get(`GET_TICKET_${shortId}`) ||
-                this.pendingRejects.get(`GET_TICKET_${shortId.toLowerCase()}`);
-
-              if (reject) {
-                reject(new Error(message.error));
-                this.pendingResolves.delete(`GET_TICKET_${ticketId}`);
-                this.pendingResolves.delete(`GET_TICKET_${shortId}`);
-                this.pendingResolves.delete(`GET_TICKET_${shortId.toLowerCase()}`);
-
-                this.pendingRejects.delete(`GET_TICKET_${ticketId}`);
-                this.pendingRejects.delete(`GET_TICKET_${shortId}`);
-                this.pendingRejects.delete(`GET_TICKET_${shortId.toLowerCase()}`);
-              }
-              break;
-            }
-
-            case 'REJECT_FAILED': {
-              console.warn('❌ Falha ao recusar ticket:', message.error);
-              const reject = this.pendingRejects.get(`REJECT_${message.ticketId}`);
-              if (reject) {
-                reject(new Error(message.error));
-                this.pendingResolves.delete(`REJECT_${message.ticketId}`);
-                this.pendingRejects.delete(`REJECT_${message.ticketId}`);
-              }
-              break;
-            }
-
-            default:
-              console.warn('⚠️ Evento WebSocket desconhecido recebido do servidor:', message.type);
-          }
+          handleMessage(message, this.pendingRequests);
         } catch (err) {
           console.error('❌ Erro ao decodificar mensagem WebSocket:', err);
         }
@@ -190,12 +54,11 @@ class WebSocketService {
         this.notifyListeners(false);
         this.ws = null;
 
-        console.log(`🔌 Conexão WebSocket fechada (código: ${event.code}). Reconectando em 3s...`);
-        if (!this.reconnectTimeoutId) {
-          this.reconnectTimeoutId = window.setTimeout(() => {
-            this.reconnectTimeoutId = null;
-            this.connect();
-          }, 3000);
+        const shouldRetry = this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS;
+        console.log(`🔌 Conexão WebSocket fechada (código: ${event.code}). ${shouldRetry ? `Reconectando em ${this.getReconnectDelay()}ms...` : 'Limite de reconexão atingido.'}`);
+
+        if (shouldRetry) {
+          this.scheduleReconnect();
         }
       };
 
@@ -203,12 +66,29 @@ class WebSocketService {
         console.error('❌ Erro de conexão no WebSocket:', error);
         ws.close();
       };
-
     } catch (err) {
       console.error('❌ Erro ao criar instância WebSocket:', err);
       useTicketStore.getState().setConnected(false);
       this.notifyListeners(false);
     }
+  }
+
+  private getReconnectDelay(): number {
+    return Math.min(RECONNECT_DELAY_MS * 2 ** this.reconnectAttempts, 30000);
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimeoutId) {
+      return;
+    }
+
+    const delay = this.getReconnectDelay();
+    this.reconnectAttempts += 1;
+
+    this.reconnectTimeoutId = window.setTimeout(() => {
+      this.reconnectTimeoutId = null;
+      this.connect();
+    }, delay);
   }
 
   public identify(id: string, name: string, role: 'client' | 'agent', email: string): void {
@@ -232,8 +112,7 @@ class WebSocketService {
   ): Promise<UserState> {
     return new Promise((resolve, reject) => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.pendingResolves.set('AUTH', resolve);
-        this.pendingRejects.set('AUTH', reject);
+        this.pendingRequests.set('AUTH', resolve, reject);
 
         const payload = JSON.stringify({
           type: 'AUTH',
@@ -257,8 +136,7 @@ class WebSocketService {
   ): Promise<Ticket> {
     return new Promise((resolve, reject) => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.pendingResolves.set('CREATE_TICKET', resolve);
-        this.pendingRejects.set('CREATE_TICKET', reject);
+        this.pendingRequests.set('CREATE_TICKET', resolve, reject);
 
         const payload = JSON.stringify({
           type: 'CREATE_TICKET',
@@ -308,8 +186,7 @@ class WebSocketService {
   public getTicket(ticketId: string): Promise<Ticket> {
     return new Promise((resolve, reject) => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.pendingResolves.set(`GET_TICKET_${ticketId}`, resolve);
-        this.pendingRejects.set(`GET_TICKET_${ticketId}`, reject);
+        this.pendingRequests.set(`GET_TICKET_${ticketId}`, resolve, reject);
 
         const payload = JSON.stringify({
           type: 'GET_TICKET',
@@ -326,8 +203,7 @@ class WebSocketService {
   public acceptTicket(ticketId: string): Promise<Ticket> {
     return new Promise((resolve, reject) => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.pendingResolves.set(`ACCEPT_${ticketId}`, resolve);
-        this.pendingRejects.set(`ACCEPT_${ticketId}`, reject);
+        this.pendingRequests.set(`ACCEPT_${ticketId}`, resolve, reject);
 
         const payload = JSON.stringify({
           type: 'ACCEPT_TICKET',
@@ -344,8 +220,7 @@ class WebSocketService {
   public rejectTicket(ticketId: string): Promise<Ticket> {
     return new Promise((resolve, reject) => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.pendingResolves.set(`REJECT_${ticketId}`, resolve);
-        this.pendingRejects.set(`REJECT_${ticketId}`, reject);
+        this.pendingRequests.set(`REJECT_${ticketId}`, resolve, reject);
 
         const payload = JSON.stringify({
           type: 'REJECT_TICKET',
