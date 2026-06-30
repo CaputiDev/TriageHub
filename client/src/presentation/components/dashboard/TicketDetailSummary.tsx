@@ -6,6 +6,7 @@ interface TicketDetailSummaryProps {
   showPriority?: boolean;
   showCustomer?: boolean;
   showStatus?: boolean;
+  showStress?: boolean;
   layout?: 'grid' | 'stack';
 }
 
@@ -27,6 +28,7 @@ export const TicketDetailSummary: React.FC<TicketDetailSummaryProps> = ({
   showPriority = false,
   showCustomer = false,
   showStatus = false,
+  showStress = true,
   layout = 'stack'
 }) => {
   const isGrid = layout === 'grid';
@@ -70,10 +72,12 @@ export const TicketDetailSummary: React.FC<TicketDetailSummaryProps> = ({
           </div>
         )}
 
-        <div>
-          <span className="text-text-muted block text-xs uppercase tracking-wider">Estresse do Cliente</span>
-          <span className="text-text-main font-bold block mt-0.5">{ticket.stressLevel}/5</span>
-        </div>
+        {showStress && (
+          <div>
+            <span className="text-text-muted block text-xs uppercase tracking-wider">Estresse do Cliente</span>
+            <span className="text-text-main font-bold block mt-0.5">{ticket.stressLevel}/5</span>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-border-subtle pt-3 mt-1">

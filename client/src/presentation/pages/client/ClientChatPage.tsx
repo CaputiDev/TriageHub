@@ -93,7 +93,7 @@ export function ClientChatPage() {
                 Fechar
               </Button>
             </div>
-            <TicketDetailSummary ticket={ticket} showStatus />
+            <TicketDetailSummary ticket={ticket} showStatus showStress={false} />
           </div>
         </div>
       )}
